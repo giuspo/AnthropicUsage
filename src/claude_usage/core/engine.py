@@ -38,6 +38,7 @@ class UsageFusionEngine(QObject):
         self._watcher_task: Optional[asyncio.Task] = None
         self._poller_task: Optional[asyncio.Task] = None
         self._last_fs_activity: float = 0.0
+        self._history: list[tuple[float, float, int]] = []  # (timestamp, utilization_pct, total_tokens)
 
     @property
     def current_snapshot(self) -> UsageSnapshot:
@@ -103,7 +104,17 @@ class UsageFusionEngine(QObject):
                 enabled=self.config.notifications_enabled,
             )
 
-            # 6. Emit signal to UI
+            # 6. Evaluate Burn-Rate and Anomaly Detection
+            self._evaluate_burn_rate()
+            if self._current_snapshot.is_burn_rate_abnormal and self._current_snapshot.anomaly_reason:
+                await self.alert_engine.notify_anomaly(
+                    workspace_name=self._current_snapshot.workspace_name,
+                    reason=self._current_snapshot.anomaly_reason,
+                    current_pct=self._current_snapshot.primary_utilization,
+                    enabled=self.config.burn_rate_alert_enabled and self.config.notifications_enabled,
+                )
+
+            # 7. Emit signal to UI
             self.snapshot_updated.emit(self._current_snapshot)
             return self._current_snapshot
 
@@ -112,6 +123,56 @@ class UsageFusionEngine(QObject):
             self._current_snapshot.status_label = "Errore Aggiornamento"
             self.snapshot_updated.emit(self._current_snapshot)
             return self._current_snapshot
+
+    def _evaluate_burn_rate(self) -> None:
+        """Calculates consumption burn rate and flags abnormal velocity or token spikes."""
+        import time
+
+        now = time.time()
+        curr_util = self._current_snapshot.primary_utilization
+        curr_tokens = self._current_snapshot.tokens.total_tokens
+
+        # Record point if valid
+        if not self._current_snapshot.is_offline and not self._current_snapshot.is_rate_limited:
+            self._history.append((now, curr_util, curr_tokens))
+
+        # Prune points older than window
+        window_sec = max(60, int(self.config.burn_rate_window_minutes * 60))
+        self._history = [h for h in self._history if (now - h[0]) <= window_sec]
+
+        if len(self._history) < 2:
+            self._current_snapshot.burn_rate_per_min = 0.0
+            self._current_snapshot.is_burn_rate_abnormal = False
+            self._current_snapshot.anomaly_reason = None
+            return
+
+        oldest_time, oldest_util, oldest_tokens = self._history[0]
+        delta_t_min = (now - oldest_time) / 60.0
+
+        if delta_t_min >= 0.5:
+            delta_pct = curr_util - oldest_util
+            rate = delta_pct / delta_t_min
+            self._current_snapshot.burn_rate_per_min = max(0.0, round(rate, 2))
+
+            # 1. Check for rapid quota surge (+15% in <10m)
+            if delta_pct >= self.config.burn_rate_spike_pct:
+                self._current_snapshot.is_burn_rate_abnormal = True
+                self._current_snapshot.anomaly_reason = (
+                    f"Salto quota anomalo: +{delta_pct:.0f}% in {delta_t_min:.1f} min (+{rate:.1f}%/min)"
+                )
+                return
+
+            # 2. Check for abnormal token volume surge in short window
+            delta_tokens = curr_tokens - oldest_tokens
+            if delta_tokens >= self.config.heavy_turn_token_limit and delta_t_min <= 5.0:
+                self._current_snapshot.is_burn_rate_abnormal = True
+                self._current_snapshot.anomaly_reason = (
+                    f"Picco token anomalo: +{delta_tokens:,} token in {delta_t_min:.1f} min"
+                )
+                return
+
+        self._current_snapshot.is_burn_rate_abnormal = False
+        self._current_snapshot.anomaly_reason = None
 
     async def _poll_loop(self) -> None:
         """Background adaptive polling heartbeat."""
