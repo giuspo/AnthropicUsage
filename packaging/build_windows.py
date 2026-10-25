@@ -6,11 +6,16 @@ import os
 import shutil
 import subprocess
 import sys
+import zipfile
 from pathlib import Path
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 SRC_DIR = ROOT_DIR / "src"
 RESOURCES_DIR = SRC_DIR / "claude_usage" / "resources"
+
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
+from claude_usage import __version__
 
 
 def build_executable():
@@ -91,6 +96,22 @@ def build_executable():
                 print(f"SUCCESS: Setup Wizard created at: {setup_exe}")
                 print(f"Setup Size: {setup_exe.stat().st_size / (1024 * 1024):.1f} MB")
                 print("=" * 60)
+
+    # 4. Create release zip archive with version
+    dist_dir = ROOT_DIR / "dist"
+    dist_exe = dist_dir / "ClaudeUsageWidget.exe"
+    dist_setup = dist_dir / "ClaudeUsageWidget-Setup.exe"
+    zip_path = dist_dir / f"ClaudeUsageWidget-v{__version__}-Windows.zip"
+
+    if dist_exe.exists():
+        print(f"\nCreating release archive: {zip_path.name}...")
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
+            z.write(dist_exe, "ClaudeUsageWidget.exe")
+            if dist_setup.exists():
+                z.write(dist_setup, "ClaudeUsageWidget-Setup.exe")
+        print(f"SUCCESS: Release archive ready at: {zip_path}")
+        print(f"Archive Size: {zip_path.stat().st_size / (1024 * 1024):.1f} MB")
+        print("=" * 60)
 
 
 if __name__ == "__main__":

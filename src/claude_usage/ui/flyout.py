@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from claude_usage import __version__
 from claude_usage.config import AppConfig, save_config
 from claude_usage.core.login_helper import ClaudeLoginHelper
 from claude_usage.core.models import UsageSnapshot
@@ -153,6 +154,21 @@ class MicroFlyoutWindow(QWidget):
         )
         header_layout.addWidget(self.status_pill)
         header_layout.addStretch()
+
+        self.version_pill = QLabel(f"v{__version__}", self.card)
+        self.version_pill.setStyleSheet(
+            """
+            background-color: #1E1E24;
+            color: #A1A1AA;
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 600;
+            border: 1px solid #2E2E38;
+        """
+        )
+        self.version_pill.setToolTip(f"Versione applicazione: {__version__} (Major.Minor.Compilation)")
+        header_layout.addWidget(self.version_pill)
 
         self.btn_refresh = QPushButton("↻", self.card)
         self.btn_refresh.setFixedSize(30, 30)
@@ -634,13 +650,39 @@ class MicroFlyoutWindow(QWidget):
         layout_about.setContentsMargins(10, 10, 10, 10)
         layout_about.setSpacing(8)
 
+        # Header con Titolo e Badge Versione
+        row_about_title = QHBoxLayout()
         lbl_about_sec = QLabel("ℹ️ Guida & Informazioni", card_about)
         lbl_about_sec.setStyleSheet("font-size: 13px; font-weight: 700; color: #FFFFFF;")
-        layout_about.addWidget(lbl_about_sec)
+        row_about_title.addWidget(lbl_about_sec)
+        row_about_title.addStretch()
+
+        lbl_version_badge = QLabel(f"v{__version__}", card_about)
+        lbl_version_badge.setStyleSheet(
+            """
+            background-color: #0369A1;
+            color: #F0F9FF;
+            font-weight: 700;
+            font-size: 11px;
+            padding: 2px 8px;
+            border-radius: 6px;
+            border: 1px solid #38BDF8;
+            """
+        )
+        lbl_version_badge.setToolTip(f"Versione build: {__version__}")
+        row_about_title.addWidget(lbl_version_badge)
+        layout_about.addLayout(row_about_title)
 
         lbl_creator = QLabel("Creato con cura e dedizione da giuspo 🚀", card_about)
         lbl_creator.setStyleSheet("color: #38BDF8; font-size: 12px; font-weight: 600;")
         layout_about.addWidget(lbl_creator)
+
+        lbl_ver_detail = QLabel(
+            f"📦 <b>Versione {__version__}</b> &nbsp;•&nbsp; <span style='color: #71717A;'>Schema Major.Minor.Compilation</span>",
+            card_about,
+        )
+        lbl_ver_detail.setStyleSheet("color: #D4D4D8; font-size: 11px; margin-bottom: 2px;")
+        layout_about.addWidget(lbl_ver_detail)
 
         # Scopo del programma
         lbl_purpose_title = QLabel("🎯 Scopo dell'Applicazione", card_about)

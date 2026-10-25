@@ -9,6 +9,7 @@ from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import QMenu, QSystemTrayIcon, QWidget
 
+from claude_usage import __version__
 from claude_usage.core.models import UsageSnapshot
 from claude_usage.ui.flyout import MicroFlyoutWindow
 from claude_usage.ui.icon_renderer import IconRenderer
@@ -57,10 +58,15 @@ class TrayController(QSystemTrayIcon):
         # Set initial icon at 0%
         initial_icon = IconRenderer.render_tray_icon(0.0)
         self.setIcon(initial_icon)
-        self.setToolTip("Claude Code: Inizializzazione...")
+        self.setToolTip(f"Claude Code v{__version__}: Inizializzazione...")
 
     def _init_menu(self) -> None:
         menu = QMenu()
+
+        act_app_info = QAction(f"Claude Usage Widget  v{__version__}", menu)
+        act_app_info.setEnabled(False)
+        menu.addAction(act_app_info)
+        menu.addSeparator()
 
         act_show = QAction("📊 Mostra Widget", menu)
         act_show.triggered.connect(self._toggle_flyout)
@@ -76,7 +82,7 @@ class TrayController(QSystemTrayIcon):
         act_settings.triggered.connect(self._open_settings)
         menu.addAction(act_settings)
 
-        act_help = QAction("ℹ️ Informazioni & Help (giuspo)", menu)
+        act_help = QAction(f"ℹ️ Informazioni & Help (v{__version__} - giuspo)", menu)
         act_help.triggered.connect(self._open_help)
         menu.addAction(act_help)
 
