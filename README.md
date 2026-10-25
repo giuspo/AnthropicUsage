@@ -27,7 +27,24 @@ Rimani sempre aggiornato sullo stato della tua quota senza dover aprire il brows
 
 ---
 
-## 🚀 Avvio Rapido
+## 🚀 Installazione e Distribuzione su Windows
+
+### Opzione 1: Installer Ufficiale Guidato (Raccomandato per Tutti i PC)
+Il classico pacchetto di installazione standard di Windows:
+1. Scarica ed esegui il file di setup: [`dist/ClaudeUsageWidget-Setup.exe`](file:///d:/Git/AnthropicUsage/dist/ClaudeUsageWidget-Setup.exe).
+2. Segui la procedura guidata (in italiano):
+   * Scegli se creare l'icona sul Desktop.
+   * Scegli se avviare l'app all'accesso a Windows.
+3. Il programma viene registrato ufficialmente nelle **Impostazioni di Windows ("App installate")**, nel **Menu Start** e si avvia automaticamente con la sua icona dedicata.
+4. Per disinstallare: si può rimuovere direttamente da *Impostazioni di Windows > App > App installate > Disinstalla*.
+
+### Opzione 2: Eseguibile Standalone Portatile (Senza Installazione)
+Se preferisci un file eseguibile portatile da usare senza installare nulla (ad esempio da una chiavetta USB):
+* Scarica [`dist/ClaudeUsageWidget.exe`](file:///d:/Git/AnthropicUsage/dist/ClaudeUsageWidget.exe) e fai doppio click: si posiziona subito nella barra di sistema.
+
+---
+
+## 🛠️ Avvio per Sviluppatori (Stack Python + uv)
 
 ### Prerequisiti
 * Python 3.11+

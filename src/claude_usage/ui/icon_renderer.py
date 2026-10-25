@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import math
+import sys
 from pathlib import Path
 from typing import Optional
 
@@ -136,6 +137,14 @@ class IconRenderer:
     @classmethod
     def get_app_icon_path(cls) -> Path:
         """Returns the path to the official app icon, creating it if absent."""
+        if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+            meipass_icon = Path(sys._MEIPASS) / "claude_usage" / "resources" / "app_icon.png"
+            if meipass_icon.exists():
+                return meipass_icon
+            meipass_root = Path(sys._MEIPASS) / "app_icon.png"
+            if meipass_root.exists():
+                return meipass_root
+
         res_dir = Path(__file__).resolve().parent.parent / "resources"
         res_dir.mkdir(parents=True, exist_ok=True)
         png_path = res_dir / "app_icon.png"
