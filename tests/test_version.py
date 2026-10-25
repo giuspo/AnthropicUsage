@@ -14,3 +14,4 @@ def test_version_format():
 
     assert __version__ == f"{major}.{minor}.{compilation}"
     assert re.match(r"^\d+\.\d+\.\d+$", __version__)
+
