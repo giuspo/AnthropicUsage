@@ -42,6 +42,10 @@ def load_config() -> AppConfig:
                 data = json.load(f)
             cfg.thresholds = data.get("thresholds", [80, 95, 100])
             cfg.notifications_enabled = data.get("notifications_enabled", True)
+            cfg.burn_rate_alert_enabled = data.get("burn_rate_alert_enabled", True)
+            cfg.burn_rate_spike_pct = float(data.get("burn_rate_spike_pct", 15.0))
+            cfg.burn_rate_window_minutes = int(data.get("burn_rate_window_minutes", 10))
+            cfg.heavy_turn_token_limit = int(data.get("heavy_turn_token_limit", 35000))
             cfg.poll_interval_active_sec = data.get("poll_interval_active_sec", 90)
             cfg.poll_interval_idle_sec = data.get("poll_interval_idle_sec", 900)
             cfg.autostart_enabled = data.get("autostart_enabled", False)
@@ -65,6 +69,10 @@ def save_config(cfg: AppConfig) -> None:
     data = {
         "thresholds": cfg.thresholds,
         "notifications_enabled": cfg.notifications_enabled,
+        "burn_rate_alert_enabled": cfg.burn_rate_alert_enabled,
+        "burn_rate_spike_pct": cfg.burn_rate_spike_pct,
+        "burn_rate_window_minutes": cfg.burn_rate_window_minutes,
+        "heavy_turn_token_limit": cfg.heavy_turn_token_limit,
         "poll_interval_active_sec": cfg.poll_interval_active_sec,
         "poll_interval_idle_sec": cfg.poll_interval_idle_sec,
         "autostart_enabled": cfg.autostart_enabled,

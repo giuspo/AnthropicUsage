@@ -206,6 +206,31 @@ class MicroFlyoutWindow(QWidget):
         self.alert_banner.setVisible(False)
         card_layout.addWidget(self.alert_banner)
 
+        # Anomaly / Burn-rate Alert Banner (Shown on abnormal consumption or loop)
+        self.anomaly_banner = QFrame(self.card)
+        self.anomaly_banner.setStyleSheet(
+            """
+            QFrame {
+                background-color: rgba(245, 158, 11, 0.15);
+                border: 1px solid #F59E0B;
+                border-radius: 8px;
+            }
+        """
+        )
+        anomaly_layout = QHBoxLayout(self.anomaly_banner)
+        anomaly_layout.setContentsMargins(8, 6, 8, 6)
+        anomaly_layout.setSpacing(6)
+        lbl_anomaly_icon = QLabel("🔥", self.anomaly_banner)
+        lbl_anomaly_icon.setStyleSheet("font-size: 15px;")
+        anomaly_layout.addWidget(lbl_anomaly_icon)
+
+        self.lbl_anomaly_text = QLabel("Consumo anomalo rilevato", self.anomaly_banner)
+        self.lbl_anomaly_text.setStyleSheet("color: #FCD34D; font-size: 11px; font-weight: 600;")
+        anomaly_layout.addWidget(self.lbl_anomaly_text)
+        anomaly_layout.addStretch()
+        self.anomaly_banner.setVisible(False)
+        card_layout.addWidget(self.anomaly_banner)
+
         # Stacked Layout: Page 0 = Metrics View, Page 1 = Settings View
         self.stacked_widget = QWidget(self.card)
         self.stacked_layout = QStackedLayout(self.stacked_widget)
@@ -506,6 +531,17 @@ class MicroFlyoutWindow(QWidget):
         self.txt_thresholds.textChanged.connect(self._sync_threshold_chips)
         self._sync_threshold_chips()
 
+        # Burn-rate & Loop Detection Toggle
+        self.chk_burn_rate = QCheckBox("🔥 Avviso Consumo Rapido (Spike & Loop)", card_notif)
+        self.chk_burn_rate.setChecked(self.config.burn_rate_alert_enabled)
+        self.chk_burn_rate.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.chk_burn_rate.setStyleSheet("color: #E4E4E7; font-size: 12px; margin-top: 8px;")
+        layout_notif.addWidget(self.chk_burn_rate)
+
+        lbl_burn_desc = QLabel("Avvisa se la quota sale oltre +15% in <10m o con turni enormi", card_notif)
+        lbl_burn_desc.setStyleSheet("color: #71717A; font-size: 10px;")
+        layout_notif.addWidget(lbl_burn_desc)
+
         vbox_settings.addWidget(card_notif)
 
         # --- SECTION 3: CHIAVE API O ENTERPRISE (OPZIONALE) ---
@@ -700,6 +736,15 @@ class MicroFlyoutWindow(QWidget):
             """
             )
 
+        # Anomaly / Burn-rate Alert Banner
+        if snap.is_burn_rate_abnormal and snap.anomaly_reason:
+            self.anomaly_banner.setVisible(True)
+            self.lbl_anomaly_text.setText(
+                f"Consumo Anomalo Rilevato!\n{snap.anomaly_reason}"
+            )
+        else:
+            self.anomaly_banner.setVisible(False)
+
         self.lbl_workspace.setText(snap.workspace_name)
 
         # Update Dual Row labels with friendly Italian timestamps
@@ -730,7 +775,8 @@ class MicroFlyoutWindow(QWidget):
         if target_pct <= 0.0:
             self.lbl_reset_timer.setText("Plafond disponibile (nessun consumo)")
         else:
-            self.lbl_reset_timer.setText(f"Reset: {target_friendly}")
+            burn_suffix = f" • 🔥 +{snap.burn_rate_per_min}%/m" if snap.burn_rate_per_min >= 0.5 else ""
+            self.lbl_reset_timer.setText(f"Reset: {target_friendly}{burn_suffix}")
 
         # Update Tokens Cards
         val_in = self.card_in.findChild(QLabel, "val")
@@ -876,6 +922,7 @@ class MicroFlyoutWindow(QWidget):
 
     def _save_settings_action(self) -> None:
         self.config.notifications_enabled = self.chk_notif.isChecked()
+        self.config.burn_rate_alert_enabled = self.chk_burn_rate.isChecked()
         self.config.mock_mode = self.chk_mock.isChecked()
         parsed_thresh = self._parse_current_thresholds()
         self.config.thresholds = parsed_thresh if parsed_thresh else [80, 95, 100]

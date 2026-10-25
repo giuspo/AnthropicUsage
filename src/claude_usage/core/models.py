@@ -162,6 +162,9 @@ class UsageSnapshot:
     is_rate_limited: bool = False
     is_offline: bool = False
     last_updated: datetime = field(default_factory=datetime.now)
+    burn_rate_per_min: float = 0.0
+    is_burn_rate_abnormal: bool = False
+    anomaly_reason: Optional[str] = None
 
     @property
     def is_blocked(self) -> bool:
@@ -198,6 +201,10 @@ class UsageSnapshot:
 class AppConfig:
     thresholds: list[int] = field(default_factory=lambda: [80, 95, 100])
     notifications_enabled: bool = True
+    burn_rate_alert_enabled: bool = True
+    burn_rate_spike_pct: float = 15.0
+    burn_rate_window_minutes: int = 10
+    heavy_turn_token_limit: int = 35000
     poll_interval_active_sec: int = 90
     poll_interval_idle_sec: int = 900
     autostart_enabled: bool = False

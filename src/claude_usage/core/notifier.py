@@ -22,6 +22,7 @@ class AlertEngine:
         self._notifier: Optional[DesktopNotifier] = None
         self._notified_thresholds: Set[int] = set()
         self._active_window_id: Optional[str] = None
+        self._last_anomaly_notification_time: float = 0.0
 
     def _ensure_notifier(self) -> DesktopNotifier:
         if self._notifier is None:
@@ -94,4 +95,46 @@ class AlertEngine:
             logger.info(f"Sent native alert for threshold {threshold}%")
         except Exception as e:
             logger.warning(f"Could not dispatch desktop notification: {e}")
+
+    async def notify_anomaly(
+        self,
+        workspace_name: str,
+        reason: str,
+        current_pct: float,
+        cooldown_seconds: int = 600,
+        enabled: bool = True,
+    ) -> bool:
+        """Sends an urgent notification when an abnormal spike or burn-rate is detected."""
+        if not enabled:
+            return False
+
+        import time
+        now = time.time()
+        if now - self._last_anomaly_notification_time < cooldown_seconds:
+            logger.debug("Anomaly notification suppressed due to cooldown")
+            return False
+
+        self._last_anomaly_notification_time = now
+        notifier = self._ensure_notifier()
+        title = f"🔥 Claude Code: Consumo Anomalo! ({int(current_pct)}%)"
+        message = (
+            f"[{workspace_name}] {reason}\n"
+            f"Verifica se Claude è entrato in loop o sta leggendo contesti enormi."
+        )
+
+        icon_path = IconRenderer.get_app_icon_path()
+        toast_icon = Icon(path=icon_path) if icon_path.exists() else None
+
+        try:
+            await notifier.send(
+                title=title,
+                message=message,
+                urgency=Urgency.Critical,
+                icon=toast_icon,
+            )
+            logger.info(f"Dispatched anomaly notification: {reason}")
+            return True
+        except Exception as e:
+            logger.warning(f"Could not dispatch anomaly notification: {e}")
+            return False
 
