@@ -631,35 +631,53 @@ class MicroFlyoutWindow(QWidget):
         """
         )
         layout_about = QVBoxLayout(card_about)
-        layout_about.setContentsMargins(8, 8, 8, 8)
-        layout_about.setSpacing(6)
+        layout_about.setContentsMargins(10, 10, 10, 10)
+        layout_about.setSpacing(8)
 
-        lbl_about_sec = QLabel("ℹ️ Informazioni & Help", card_about)
-        lbl_about_sec.setStyleSheet("font-size: 13px; font-weight: 600; color: #FFFFFF;")
+        lbl_about_sec = QLabel("ℹ️ Guida & Informazioni", card_about)
+        lbl_about_sec.setStyleSheet("font-size: 13px; font-weight: 700; color: #FFFFFF;")
         layout_about.addWidget(lbl_about_sec)
 
         lbl_creator = QLabel("Creato con cura e dedizione da giuspo 🚀", card_about)
         lbl_creator.setStyleSheet("color: #38BDF8; font-size: 12px; font-weight: 600;")
         layout_about.addWidget(lbl_creator)
 
+        # Scopo del programma
+        lbl_purpose_title = QLabel("🎯 Scopo dell'Applicazione", card_about)
+        lbl_purpose_title.setStyleSheet("font-size: 11px; font-weight: 600; color: #E4E4E7; margin-top: 4px;")
+        layout_about.addWidget(lbl_purpose_title)
+
         lbl_desc = QLabel(
-            "Widget leggero per il monitoraggio continuo di token, quota "
-            "e rate-limit per Claude Code (Anthropic) su Windows e Linux.",
+            "Claude Code Usage Widget è progettato per monitorare in tempo reale "
+            "le quote di utilizzo e il consumo di token (Input, Output, Thinking 🧠) "
+            "del tuo account Anthropic, senza dover aprire il browser o interrompere "
+            "il lavoro nel terminale. Ti avvisa prima che la quota si esaurisca.",
             card_about,
         )
         lbl_desc.setWordWrap(True)
-        lbl_desc.setStyleSheet("color: #A1A1AA; font-size: 11px;")
+        lbl_desc.setStyleSheet("color: #A1A1AA; font-size: 11px; line-height: 16px;")
         layout_about.addWidget(lbl_desc)
 
+        # Come si utilizza
+        lbl_usage_title = QLabel("💡 Come si Utilizza", card_about)
+        lbl_usage_title.setStyleSheet("font-size: 11px; font-weight: 600; color: #E4E4E7; margin-top: 4px;")
+        layout_about.addWidget(lbl_usage_title)
+
         lbl_guide = QLabel(
-            "• 🟢 Anello dinamico: verde (<75%), giallo (75-90%), rosso (>90%)\n"
-            "• ⏱️ Finestra 5 Ore e 📅 Limite Settimanale a colpo d'occhio\n"
-            "• 🔥 Rilevamento automatico di consumi anomali e loop\n"
-            "• 🔑 Accesso 1-Click con Claude Code senza console\n"
-            "• 🔔 Notifiche push native con soglie personalizzabili",
+            "1. Barra di Sistema (Tray):\n"
+            "   L'icona mostra a colpo d'occhio un anello circolare colorato (Verde <75%, Giallo 75-90%, Rosso >90%). "
+            "Passando il mouse sopra leggi la percentuale e l'orario esatto di reset.\n\n"
+            "2. Visualizzazione Metriche (Click sinistro):\n"
+            "   Clicca sull'icona per aprire la finestra con il tachimetro, i token spacchettati e passare "
+            "dalla sessione '5 Ore' al limite 'Settimanale'.\n\n"
+            "3. Connessione Account (1-Click):\n"
+            "   Nella sezione 'Account' clicca su 'Accedi con Claude': si aprirà il browser per autorizzare l'accesso in automatico.\n\n"
+            "4. Alert e Notifiche Anti-Loop:\n"
+            "   Il widget ti avvisa con notifiche push quando superi le soglie scelte o se rileva un picco anomalo di token improvvisi.",
             card_about,
         )
-        lbl_guide.setStyleSheet("color: #71717A; font-size: 10px; line-height: 14px;")
+        lbl_guide.setWordWrap(True)
+        lbl_guide.setStyleSheet("color: #9CA3AF; font-size: 10px; line-height: 15px;")
         layout_about.addWidget(lbl_guide)
 
         vbox_settings.addWidget(card_about)
