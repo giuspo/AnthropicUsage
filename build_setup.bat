@@ -16,3 +16,4 @@ if %ERRORLEVEL% EQU 0 (
     echo [!] Errore durante la compilazione.
 )
 pause
+
