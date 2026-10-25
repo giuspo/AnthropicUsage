@@ -5,7 +5,33 @@ build/
 dist/
 wheels/
 *.egg-info
+*.spec
+.pytest_cache/
+.coverage
+htmlcov/
 
 # Virtual environments
 .venv
-*.spec
+env/
+venv/
+
+# Secrets and local configurations
+.env
+.env.*
+*.env
+*.key
+*.pem
+*.pfx
+*.credentials.json
+credentials.json
+config.json
+
+# Local logs and session data
+*.log
+*.jsonl
+
+# IDE and OS artifacts
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
