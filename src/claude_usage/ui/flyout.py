@@ -618,6 +618,52 @@ class MicroFlyoutWindow(QWidget):
         btn_save_settings.clicked.connect(self._save_settings_action)
         vbox_settings.addWidget(btn_save_settings)
 
+        # --- SECTION 4: INFORMAZIONI, HELP & CREDITI ---
+        card_about = QFrame(scroll_content)
+        card_about.setStyleSheet(
+            """
+            QFrame {
+                background-color: #1A1A1E;
+                border: 1px solid #2E2E34;
+                border-radius: 10px;
+                padding: 10px;
+            }
+        """
+        )
+        layout_about = QVBoxLayout(card_about)
+        layout_about.setContentsMargins(8, 8, 8, 8)
+        layout_about.setSpacing(6)
+
+        lbl_about_sec = QLabel("ℹ️ Informazioni & Help", card_about)
+        lbl_about_sec.setStyleSheet("font-size: 13px; font-weight: 600; color: #FFFFFF;")
+        layout_about.addWidget(lbl_about_sec)
+
+        lbl_creator = QLabel("Creato con cura e dedizione da giuspo 🚀", card_about)
+        lbl_creator.setStyleSheet("color: #38BDF8; font-size: 12px; font-weight: 600;")
+        layout_about.addWidget(lbl_creator)
+
+        lbl_desc = QLabel(
+            "Widget leggero per il monitoraggio continuo di token, quota "
+            "e rate-limit per Claude Code (Anthropic) su Windows e Linux.",
+            card_about,
+        )
+        lbl_desc.setWordWrap(True)
+        lbl_desc.setStyleSheet("color: #A1A1AA; font-size: 11px;")
+        layout_about.addWidget(lbl_desc)
+
+        lbl_guide = QLabel(
+            "• 🟢 Anello dinamico: verde (<75%), giallo (75-90%), rosso (>90%)\n"
+            "• ⏱️ Finestra 5 Ore e 📅 Limite Settimanale a colpo d'occhio\n"
+            "• 🔥 Rilevamento automatico di consumi anomali e loop\n"
+            "• 🔑 Accesso 1-Click con Claude Code senza console\n"
+            "• 🔔 Notifiche push native con soglie personalizzabili",
+            card_about,
+        )
+        lbl_guide.setStyleSheet("color: #71717A; font-size: 10px; line-height: 14px;")
+        layout_about.addWidget(lbl_guide)
+
+        vbox_settings.addWidget(card_about)
+
         vbox_settings.addStretch()
         scroll.setWidget(scroll_content)
         settings_outer_layout.addWidget(scroll)
@@ -644,6 +690,23 @@ class MicroFlyoutWindow(QWidget):
         )
         self.btn_toggle_settings.clicked.connect(self._toggle_settings_page)
         footer_layout.addWidget(self.btn_toggle_settings)
+
+        btn_help = QPushButton("ℹ️ Help", self.card)
+        btn_help.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_help.setStyleSheet(
+            """
+            QPushButton {
+                background: transparent;
+                color: #71717A;
+                font-size: 12px;
+                border: none;
+                padding: 4px 6px;
+            }
+            QPushButton:hover { color: #38BDF8; }
+        """
+        )
+        btn_help.clicked.connect(self._show_help_section)
+        footer_layout.addWidget(btn_help)
 
         footer_layout.addStretch()
 
@@ -860,6 +923,11 @@ class MicroFlyoutWindow(QWidget):
         else:
             self.stacked_layout.setCurrentIndex(0)
             self.btn_toggle_settings.setText("⚙️ Impostazioni")
+
+    def _show_help_section(self) -> None:
+        """Navigates to the Settings & Help page."""
+        self.stacked_layout.setCurrentIndex(1)
+        self.btn_toggle_settings.setText("⬅ Torna a Metriche")
 
     def _toggle_threshold_chip(self, val: int) -> None:
         """Toggles a percentage value in the thresholds input field."""

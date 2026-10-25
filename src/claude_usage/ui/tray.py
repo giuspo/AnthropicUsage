@@ -76,6 +76,10 @@ class TrayController(QSystemTrayIcon):
         act_settings.triggered.connect(self._open_settings)
         menu.addAction(act_settings)
 
+        act_help = QAction("ℹ️ Informazioni & Help (giuspo)", menu)
+        act_help.triggered.connect(self._open_help)
+        menu.addAction(act_help)
+
         menu.addSeparator()
 
         act_quit = QAction("❌ Esci", menu)
@@ -100,6 +104,11 @@ class TrayController(QSystemTrayIcon):
             self.flyout.toggle_at_tray(self.geometry())
         self.flyout.stacked_layout.setCurrentIndex(1)
         self.flyout.btn_toggle_settings.setText("⬅ Torna a Metriche")
+
+    def _open_help(self) -> None:
+        if not self.flyout.isVisible():
+            self.flyout.toggle_at_tray(self.geometry())
+        self.flyout._show_help_section()
 
     def update_snapshot(self, snap: UsageSnapshot) -> None:
         """Updates the tray icon and formatted tooltip."""

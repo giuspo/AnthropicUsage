@@ -3,7 +3,7 @@
 
 #define MyAppName "Claude Code Usage Widget"
 #define MyAppVersion "1.0.0"
-#define MyAppPublisher "Anthropic Community / Local Tools"
+#define MyAppPublisher "giuspo"
 #define MyAppExeName "ClaudeUsageWidget.exe"
 #define MyAppAssocName MyAppName + " File"
 
