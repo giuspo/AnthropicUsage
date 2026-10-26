@@ -108,13 +108,12 @@ class TrayController(QSystemTrayIcon):
     def _open_settings(self) -> None:
         if not self.flyout.isVisible():
             self.flyout.toggle_at_tray(self.geometry())
-        self.flyout.stacked_layout.setCurrentIndex(1)
-        self.flyout.btn_toggle_settings.setText("⬅ Torna a Metriche")
+        self.flyout.switch_page(1)
 
     def _open_help(self) -> None:
         if not self.flyout.isVisible():
             self.flyout.toggle_at_tray(self.geometry())
-        self.flyout._show_help_section()
+        self.flyout.switch_page(2)
 
     def update_snapshot(self, snap: UsageSnapshot) -> None:
         """Updates the tray icon and formatted tooltip."""
