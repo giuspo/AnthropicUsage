@@ -2,7 +2,7 @@
 ; Produces a modern, lightweight, non-admin Windows Installer
 
 #define MyAppName "Claude Code Usage Widget"
-#define MyAppVersion "1.0.2"
+#define MyAppVersion "1.0.3"
 #define MyAppPublisher "giuspo"
 #define MyAppExeName "ClaudeUsageWidget.exe"
 #define MyAppAssocName MyAppName + " File"

@@ -6,7 +6,7 @@ import asyncio
 import webbrowser
 from typing import Optional
 
-from PyQt6.QtCore import QEvent, QObject, QRect, Qt, pyqtSignal
+from PyQt6.QtCore import QEvent, QObject, QRect, QTimer, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QIcon, QPainter, QPaintEvent, QPen
 from PyQt6.QtWidgets import (
     QCheckBox,
@@ -41,11 +41,11 @@ def format_number(val: int) -> str:
 
 
 class SemiCircleGauge(QWidget):
-    """Custom paint widget rendering a semi-circular radial gauge for 5-hour usage."""
+    """Custom paint widget rendering a semi-circular radial gauge with centered percentage."""
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
-        self.setFixedSize(260, 130)
+        self.setFixedSize(240, 122)
         self.pct: float = 0.0
 
     def set_percentage(self, pct: float) -> None:
@@ -55,13 +55,14 @@ class SemiCircleGauge(QWidget):
     def paintEvent(self, event: QPaintEvent) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
 
-        rect = QRect(20, 15, 220, 220)
+        rect = QRect(20, 14, 200, 196)
         start_angle = 180 * 16
         full_span = -180 * 16
 
         # Background Arc
-        bg_pen = QPen(QColor(255, 255, 255, 25), 16, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
+        bg_pen = QPen(QColor(255, 255, 255, 25), 15, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
         painter.setPen(bg_pen)
         painter.drawArc(rect, start_angle, full_span)
 
@@ -75,13 +76,26 @@ class SemiCircleGauge(QWidget):
 
         span_angle = int((-180 * 16) * (self.pct / 100.0))
         if abs(span_angle) > 0:
-            fg_pen = QPen(color, 16, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
+            fg_pen = QPen(color, 15, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
             painter.setPen(fg_pen)
             painter.drawArc(rect, start_angle, span_angle)
 
+        # Draw Percentage Text crisply inside the center of the semi-circle
+        painter.setPen(QColor("#FFFFFF"))
+        font = QFont("Segoe UI", 24, QFont.Weight.Bold)
+        painter.setFont(font)
+        text_rect = QRect(0, 48, self.width(), 54)
+        painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, f"{int(round(self.pct))}%")
+
 
 class MicroFlyoutWindow(QWidget):
-    """Borderless, frameless pop-up window anchored above/below the system tray."""
+    """Borderless floating panel anchored near the system tray icon.
+
+    Structured in 3 distinct views via a bottom segmented navigation bar:
+      - Page 0: 📊 Metriche (Gauge, 5h/7d switch, Tokens, Alert banners)
+      - Page 1: ⚙️ Impostazioni (Account 1-Click, Thresholds, Anti-Loop, API Key)
+      - Page 2: ℹ️ Info & Help (Version badge, Creator giuspo, Purpose, 4-Step Guide, GPLv3)
+    """
 
     refresh_requested = pyqtSignal()
     logout_requested = pyqtSignal()
@@ -95,7 +109,7 @@ class MicroFlyoutWindow(QWidget):
         )
         self.config = config
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.setFixedSize(380, 530)
+        self.setFixedSize(392, 560)
 
         app_icon_path = IconRenderer.get_app_icon_path()
         if app_icon_path.exists():
@@ -108,7 +122,6 @@ class MicroFlyoutWindow(QWidget):
 
     def eventFilter(self, obj: QObject, event: QEvent) -> bool:
         if obj == self and event.type() == QEvent.Type.WindowDeactivate:
-            # Clicked outside flyout: dismiss
             self.hide()
             return True
         return super().eventFilter(obj, event)
@@ -119,24 +132,68 @@ class MicroFlyoutWindow(QWidget):
 
         self.card = QFrame(self)
         self.card.setObjectName("MainCard")
+        # IMPORTANT: Use explicit ID/class selectors (#SectionCard, #AlertBanner, etc.)
+        # so QFrame rules NEVER cascade onto child QLabels (since QLabel inherits QFrame).
         self.card.setStyleSheet(
             """
-            #MainCard {
+            QFrame#MainCard {
                 background-color: #121214;
                 border: 1px solid #27272A;
                 border-radius: 16px;
             }
+            QFrame#SectionCard {
+                background-color: #18181C;
+                border: 1px solid #27272A;
+                border-radius: 10px;
+            }
+            QFrame#HeroCard {
+                background-color: #161F2C;
+                border: 1px solid #1E3A5F;
+                border-radius: 12px;
+            }
+            QFrame#StepCard {
+                background-color: #18181C;
+                border: 1px solid #26262B;
+                border-radius: 8px;
+            }
+            QFrame#AlertBanner {
+                background-color: rgba(239, 68, 68, 0.14);
+                border: 1px solid #EF4444;
+                border-radius: 8px;
+            }
+            QFrame#AnomalyBanner {
+                background-color: rgba(245, 158, 11, 0.14);
+                border: 1px solid #F59E0B;
+                border-radius: 8px;
+            }
+            QFrame#NavFooter {
+                background-color: #18181C;
+                border: 1px solid #27272A;
+                border-radius: 10px;
+            }
             QLabel {
                 color: #F4F4F5;
+                background: transparent;
+                border: none;
+                padding: 0px;
                 font-family: 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif;
+            }
+            QCheckBox {
+                color: #E4E4E7;
+                font-size: 12px;
+                spacing: 8px;
+                background: transparent;
+                border: none;
             }
         """
         )
         card_layout = QVBoxLayout(self.card)
-        card_layout.setContentsMargins(18, 16, 18, 16)
+        card_layout.setContentsMargins(16, 14, 16, 14)
         card_layout.setSpacing(10)
 
-        # 1. Header Bar
+        # =====================================================================
+        # 1. TOP HEADER BAR (Persistent across views)
+        # =====================================================================
         header_layout = QHBoxLayout()
         header_layout.setSpacing(8)
 
@@ -156,6 +213,7 @@ class MicroFlyoutWindow(QWidget):
         header_layout.addStretch()
 
         self.version_pill = QLabel(f"v{__version__}", self.card)
+        self.version_pill.setCursor(Qt.CursorShape.PointingHandCursor)
         self.version_pill.setStyleSheet(
             """
             background-color: #1E1E24;
@@ -167,18 +225,43 @@ class MicroFlyoutWindow(QWidget):
             border: 1px solid #2E2E38;
         """
         )
-        self.version_pill.setToolTip(f"Versione applicazione: {__version__} (Major.Minor.Compilation)")
+        self.version_pill.setToolTip(f"Versione {__version__} (Major.Minor.Compilation)")
         header_layout.addWidget(self.version_pill)
 
+        btn_console = QPushButton("Console ↗", self.card)
+        btn_console.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_console.setToolTip("Apri dashboard consumi Anthropic nel browser")
+        btn_console.setStyleSheet(
+            """
+            QPushButton {
+                background-color: #1E1E22;
+                color: #38BDF8;
+                font-size: 11px;
+                font-weight: 600;
+                border-radius: 7px;
+                border: 1px solid #2E2E34;
+                padding: 4px 8px;
+                min-height: 20px;
+            }
+            QPushButton:hover {
+                background-color: #27272E;
+                color: #7DD3FC;
+            }
+        """
+        )
+        btn_console.clicked.connect(self._open_console)
+        header_layout.addWidget(btn_console)
+
         self.btn_refresh = QPushButton("↻", self.card)
-        self.btn_refresh.setFixedSize(30, 30)
+        self.btn_refresh.setFixedSize(28, 28)
         self.btn_refresh.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_refresh.setToolTip("Aggiorna metriche adesso")
         self.btn_refresh.setStyleSheet(
             """
             QPushButton {
                 background-color: #1E1E22;
                 color: #FAFAFA;
-                border-radius: 8px;
+                border-radius: 7px;
                 font-size: 14px;
                 font-weight: 600;
                 border: 1px solid #2E2E34;
@@ -192,72 +275,100 @@ class MicroFlyoutWindow(QWidget):
         header_layout.addWidget(self.btn_refresh)
         card_layout.addLayout(header_layout)
 
-        # Workspace Title
-        self.lbl_workspace = QLabel("Claude Code", self.card)
-        self.lbl_workspace.setStyleSheet("font-size: 17px; font-weight: 700; color: #FFFFFF;")
-        card_layout.addWidget(self.lbl_workspace)
+        # =====================================================================
+        # 2. STACKED CONTENT AREA (3 Dedicated Pages)
+        # =====================================================================
+        self.stacked_widget = QWidget(self.card)
+        self.stacked_layout = QStackedLayout(self.stacked_widget)
+
+        self._init_metrics_page()   # Index 0: 📊 Metriche
+        self._init_settings_page()  # Index 1: ⚙️ Impostazioni
+        self._init_help_page()      # Index 2: ℹ️ Info & Help
+
+        card_layout.addWidget(self.stacked_widget, stretch=1)
+
+        # =====================================================================
+        # 3. BOTTOM NAVIGATION BAR (3 Equal-Width Segmented Tabs)
+        # =====================================================================
+        nav_frame = QFrame(self.card)
+        nav_frame.setObjectName("NavFooter")
+        nav_layout = QHBoxLayout(nav_frame)
+        nav_layout.setContentsMargins(4, 4, 4, 4)
+        nav_layout.setSpacing(4)
+
+        self.btn_nav_metrics = QPushButton("📊 Metriche", nav_frame)
+        self.btn_nav_metrics.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_nav_metrics.clicked.connect(lambda: self.switch_page(0))
+
+        self.btn_nav_settings = QPushButton("⚙️ Impostazioni", nav_frame)
+        self.btn_nav_settings.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_nav_settings.clicked.connect(lambda: self.switch_page(1))
+
+        self.btn_nav_help = QPushButton("ℹ️ Guida && Info", nav_frame)
+        self.btn_nav_help.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_nav_help.clicked.connect(lambda: self.switch_page(2))
+
+        nav_layout.addWidget(self.btn_nav_metrics, stretch=1)
+        nav_layout.addWidget(self.btn_nav_settings, stretch=1)
+        nav_layout.addWidget(self.btn_nav_help, stretch=1)
+
+        # Legacy alias for backwards compatibility
+        self.btn_toggle_settings = self.btn_nav_settings
+
+        card_layout.addWidget(nav_frame)
+        main_layout.addWidget(self.card)
+
+        self._update_nav_styles(0)
+
+    # =========================================================================
+    # PAGE 0: METRICS VIEW
+    # =========================================================================
+    def _init_metrics_page(self) -> None:
+        self.metrics_view = QWidget()
+        vbox_metrics = QVBoxLayout(self.metrics_view)
+        vbox_metrics.setContentsMargins(0, 0, 0, 0)
+        vbox_metrics.setSpacing(8)
+
+        # Workspace Title (Inside Metrics Page so it doesn't clutter Settings/Help)
+        self.lbl_workspace = QLabel("Claude Code", self.metrics_view)
+        self.lbl_workspace.setStyleSheet("font-size: 16px; font-weight: 700; color: #FFFFFF;")
+        vbox_metrics.addWidget(self.lbl_workspace)
 
         # Critical Alert Banner (Shown when 5h or 7d limit is reached)
-        self.alert_banner = QFrame(self.card)
-        self.alert_banner.setStyleSheet(
-            """
-            QFrame {
-                background-color: rgba(239, 68, 68, 0.15);
-                border: 1px solid #EF4444;
-                border-radius: 8px;
-            }
-        """
-        )
+        self.alert_banner = QFrame(self.metrics_view)
+        self.alert_banner.setObjectName("AlertBanner")
         alert_layout = QHBoxLayout(self.alert_banner)
-        alert_layout.setContentsMargins(8, 6, 8, 6)
-        alert_layout.setSpacing(6)
+        alert_layout.setContentsMargins(10, 7, 10, 7)
+        alert_layout.setSpacing(8)
+
         lbl_alert_icon = QLabel("🚨", self.alert_banner)
         lbl_alert_icon.setStyleSheet("font-size: 15px;")
         alert_layout.addWidget(lbl_alert_icon)
 
-        self.lbl_alert_text = QLabel("Limite Settimanale Raggiunto (100%)\nReset tra 24h 31m", self.alert_banner)
+        self.lbl_alert_text = QLabel("Limite Settimanale Raggiunto (100%)\nReset tra --", self.alert_banner)
+        self.lbl_alert_text.setWordWrap(True)
         self.lbl_alert_text.setStyleSheet("color: #FCA5A5; font-size: 11px; font-weight: 600;")
-        alert_layout.addWidget(self.lbl_alert_text)
-        alert_layout.addStretch()
+        alert_layout.addWidget(self.lbl_alert_text, stretch=1)
         self.alert_banner.setVisible(False)
-        card_layout.addWidget(self.alert_banner)
+        vbox_metrics.addWidget(self.alert_banner)
 
-        # Anomaly / Burn-rate Alert Banner (Shown on abnormal consumption or loop)
-        self.anomaly_banner = QFrame(self.card)
-        self.anomaly_banner.setStyleSheet(
-            """
-            QFrame {
-                background-color: rgba(245, 158, 11, 0.15);
-                border: 1px solid #F59E0B;
-                border-radius: 8px;
-            }
-        """
-        )
+        # Anomaly / Burn-rate Alert Banner
+        self.anomaly_banner = QFrame(self.metrics_view)
+        self.anomaly_banner.setObjectName("AnomalyBanner")
         anomaly_layout = QHBoxLayout(self.anomaly_banner)
-        anomaly_layout.setContentsMargins(8, 6, 8, 6)
-        anomaly_layout.setSpacing(6)
+        anomaly_layout.setContentsMargins(10, 7, 10, 7)
+        anomaly_layout.setSpacing(8)
+
         lbl_anomaly_icon = QLabel("🔥", self.anomaly_banner)
         lbl_anomaly_icon.setStyleSheet("font-size: 15px;")
         anomaly_layout.addWidget(lbl_anomaly_icon)
 
         self.lbl_anomaly_text = QLabel("Consumo anomalo rilevato", self.anomaly_banner)
+        self.lbl_anomaly_text.setWordWrap(True)
         self.lbl_anomaly_text.setStyleSheet("color: #FCD34D; font-size: 11px; font-weight: 600;")
-        anomaly_layout.addWidget(self.lbl_anomaly_text)
-        anomaly_layout.addStretch()
+        anomaly_layout.addWidget(self.lbl_anomaly_text, stretch=1)
         self.anomaly_banner.setVisible(False)
-        card_layout.addWidget(self.anomaly_banner)
-
-        # Stacked Layout: Page 0 = Metrics View, Page 1 = Settings View
-        self.stacked_widget = QWidget(self.card)
-        self.stacked_layout = QStackedLayout(self.stacked_widget)
-
-        # =========================================================================
-        # PAGE 0: METRICS VIEW
-        # =========================================================================
-        self.metrics_view = QWidget()
-        vbox_metrics = QVBoxLayout(self.metrics_view)
-        vbox_metrics.setContentsMargins(0, 2, 0, 0)
-        vbox_metrics.setSpacing(8)
+        vbox_metrics.addWidget(self.anomaly_banner)
 
         # Segmented Control: [ ⏱️ Finestra 5 Ore ]  [ 📅 Limite Settimanale ]
         tab_layout = QHBoxLayout()
@@ -277,7 +388,7 @@ class MicroFlyoutWindow(QWidget):
         vbox_metrics.addLayout(tab_layout)
 
         # Semi-circular gauge container
-        gauge_container = QWidget()
+        gauge_container = QWidget(self.metrics_view)
         gauge_layout = QVBoxLayout(gauge_container)
         gauge_layout.setContentsMargins(0, 0, 0, 0)
         gauge_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -286,35 +397,27 @@ class MicroFlyoutWindow(QWidget):
         gauge_layout.addWidget(self.gauge, alignment=Qt.AlignmentFlag.AlignCenter)
 
         self.lbl_pct = QLabel("0%", gauge_container)
-        self.lbl_pct.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.lbl_pct.setStyleSheet("font-size: 28px; font-weight: 700; color: #FFFFFF; margin-top: -46px;")
-        gauge_layout.addWidget(self.lbl_pct)
+        self.lbl_pct.setVisible(False)
 
         self.lbl_reset_timer = QLabel("Reset in --", gauge_container)
         self.lbl_reset_timer.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.lbl_reset_timer.setStyleSheet("font-size: 12px; color: #A1A1AA; margin-bottom: 2px;")
+        self.lbl_reset_timer.setStyleSheet("font-size: 12px; color: #A1A1AA; margin-top: 2px; margin-bottom: 1px;")
         gauge_layout.addWidget(self.lbl_reset_timer)
 
         self.lbl_gauge_title = QLabel("Sessione 5 Ore", gauge_container)
         self.lbl_gauge_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.lbl_gauge_title.setStyleSheet("font-size: 10px; color: #71717A; text-transform: uppercase; letter-spacing: 1px;")
+        self.lbl_gauge_title.setStyleSheet(
+            "font-size: 10px; color: #71717A; text-transform: uppercase; letter-spacing: 1px;"
+        )
         gauge_layout.addWidget(self.lbl_gauge_title)
 
         vbox_metrics.addWidget(gauge_container)
 
-        # Dual Quota Overview Card (5h + 7d side-by-side)
+        # Dual Quota Overview Card (5h + 7d side-by-side summary)
         dual_card = QFrame(self.metrics_view)
-        dual_card.setStyleSheet(
-            """
-            QFrame {
-                background-color: #1A1A1E;
-                border: 1px solid #2E2E34;
-                border-radius: 8px;
-            }
-        """
-        )
+        dual_card.setObjectName("SectionCard")
         dual_layout = QVBoxLayout(dual_card)
-        dual_layout.setContentsMargins(10, 6, 10, 6)
+        dual_layout.setContentsMargins(12, 8, 12, 8)
         dual_layout.setSpacing(4)
 
         self.lbl_row_5h = QLabel("⏱️ Sessione 5h: 0%  (Reset in 0m)", dual_card)
@@ -343,76 +446,42 @@ class MicroFlyoutWindow(QWidget):
         vbox_metrics.addStretch()
         self.stacked_layout.addWidget(self.metrics_view)
 
-        # =========================================================================
-        # PAGE 1: SETTINGS VIEW (Clean Structured Layout with ScrollArea)
-        # =========================================================================
+    # =========================================================================
+    # PAGE 1: SETTINGS VIEW (Clean, Direct Full-Width Layout, Zero Clipping)
+    # =========================================================================
+    def _init_settings_page(self) -> None:
         self.settings_view = QWidget()
-        settings_outer_layout = QVBoxLayout(self.settings_view)
-        settings_outer_layout.setContentsMargins(0, 0, 0, 0)
+        vbox_settings = QVBoxLayout(self.settings_view)
+        vbox_settings.setContentsMargins(0, 0, 0, 0)
+        vbox_settings.setSpacing(8)
 
-        scroll = QScrollArea(self.settings_view)
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll.setStyleSheet(
-            """
-            QScrollArea { background: transparent; border: none; }
-            QScrollBar:vertical {
-                background: #18181B;
-                width: 6px;
-                margin: 0px;
-                border-radius: 3px;
-            }
-            QScrollBar::handle:vertical {
-                background: #3F3F46;
-                min-height: 20px;
-                border-radius: 3px;
-            }
-        """
-        )
-
-        scroll_content = QWidget()
-        scroll_content.setStyleSheet("background: transparent;")
-        vbox_settings = QVBoxLayout(scroll_content)
-        vbox_settings.setContentsMargins(2, 4, 6, 8)
-        vbox_settings.setSpacing(12)
-
-        # --- SECTION 1: ACCOUNT & AUTENTICAZIONE ---
-        card_auth = QFrame(scroll_content)
-        card_auth.setStyleSheet(
-            """
-            QFrame {
-                background-color: #1A1A1E;
-                border: 1px solid #2E2E34;
-                border-radius: 10px;
-                padding: 10px;
-            }
-        """
-        )
+        # --- CARD 1: ACCOUNT & AUTENTICAZIONE ---
+        card_auth = QFrame(self.settings_view)
+        card_auth.setObjectName("SectionCard")
         layout_auth = QVBoxLayout(card_auth)
-        layout_auth.setContentsMargins(8, 8, 8, 8)
-        layout_auth.setSpacing(8)
+        layout_auth.setContentsMargins(10, 8, 10, 8)
+        layout_auth.setSpacing(6)
 
         lbl_auth_sec = QLabel("🔐 Account Claude Code", card_auth)
-        lbl_auth_sec.setStyleSheet("font-size: 13px; font-weight: 600; color: #FFFFFF;")
+        lbl_auth_sec.setStyleSheet("font-size: 12px; font-weight: 700; color: #FFFFFF;")
         layout_auth.addWidget(lbl_auth_sec)
 
-        # 1-Click Login and Cancel Button Layout
         auth_btn_layout = QHBoxLayout()
         auth_btn_layout.setSpacing(6)
 
-        self.btn_login = QPushButton("🔑 Accedi con Claude (Login 1-Click)", card_auth)
+        self.btn_login = QPushButton("🔑 Accedi con Claude (1-Click)", card_auth)
         self.btn_login.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_login.setFixedHeight(30)
         self.btn_login.setStyleSheet(
             """
             QPushButton {
                 background-color: #10B981;
                 color: #FFFFFF;
-                padding: 8px 14px;
-                border-radius: 8px;
-                font-size: 13px;
+                padding: 0px 10px;
+                border-radius: 7px;
+                font-size: 11px;
                 font-weight: 600;
                 border: none;
-                min-height: 38px;
             }
             QPushButton:hover { background-color: #059669; }
             QPushButton:disabled { background-color: #27272A; color: #71717A; }
@@ -423,17 +492,17 @@ class MicroFlyoutWindow(QWidget):
 
         self.btn_cancel_login = QPushButton("✕ Annulla", card_auth)
         self.btn_cancel_login.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_cancel_login.setFixedHeight(30)
         self.btn_cancel_login.setStyleSheet(
             """
             QPushButton {
                 background-color: #27272A;
                 color: #A1A1AA;
-                padding: 8px 12px;
-                border-radius: 8px;
-                font-size: 12px;
+                padding: 0px 8px;
+                border-radius: 7px;
+                font-size: 11px;
                 font-weight: 500;
                 border: 1px solid #3F3F46;
-                min-height: 38px;
             }
             QPushButton:hover { background-color: #3F3F46; color: #FFFFFF; }
         """
@@ -442,22 +511,19 @@ class MicroFlyoutWindow(QWidget):
         self.btn_cancel_login.setVisible(False)
         auth_btn_layout.addWidget(self.btn_cancel_login, stretch=1)
 
-        layout_auth.addLayout(auth_btn_layout)
-
-        # Logout Button
-        self.btn_logout = QPushButton("🚪 Disconnetti Account", card_auth)
+        self.btn_logout = QPushButton("🚪 Disconnetti", card_auth)
         self.btn_logout.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_logout.setFixedHeight(30)
         self.btn_logout.setStyleSheet(
             """
             QPushButton {
                 background-color: #222226;
                 color: #F87171;
-                padding: 8px 12px;
-                border-radius: 8px;
-                font-size: 12px;
-                font-weight: 500;
+                padding: 0px 10px;
+                border-radius: 7px;
+                font-size: 11px;
+                font-weight: 600;
                 border: 1px solid #3F2323;
-                min-height: 36px;
             }
             QPushButton:hover {
                 background-color: #381A1A;
@@ -466,126 +532,107 @@ class MicroFlyoutWindow(QWidget):
         """
         )
         self.btn_logout.clicked.connect(self._perform_logout)
-        layout_auth.addWidget(self.btn_logout)
+        auth_btn_layout.addWidget(self.btn_logout, stretch=2)
+
+        layout_auth.addLayout(auth_btn_layout)
 
         self.lbl_login_status = QLabel("", card_auth)
-        self.lbl_login_status.setStyleSheet("color: #38BDF8; font-size: 11px;")
+        self.lbl_login_status.setStyleSheet("color: #38BDF8; font-size: 10px;")
         self.lbl_login_status.setWordWrap(True)
+        self.lbl_login_status.setVisible(False)
         layout_auth.addWidget(self.lbl_login_status)
 
         vbox_settings.addWidget(card_auth)
 
-        # --- SECTION 2: NOTIFICHE DESKTOP ---
-        card_notif = QFrame(scroll_content)
-        card_notif.setStyleSheet(
-            """
-            QFrame {
-                background-color: #1A1A1E;
-                border: 1px solid #2E2E34;
-                border-radius: 10px;
-                padding: 10px;
-            }
-        """
-        )
+        # --- CARD 2: NOTIFICHE & SOGLIE ---
+        card_notif = QFrame(self.settings_view)
+        card_notif.setObjectName("SectionCard")
         layout_notif = QVBoxLayout(card_notif)
-        layout_notif.setContentsMargins(8, 8, 8, 8)
-        layout_notif.setSpacing(8)
+        layout_notif.setContentsMargins(10, 8, 10, 8)
+        layout_notif.setSpacing(6)
 
-        lbl_notif_sec = QLabel("🔔 Notifiche & Alert", card_notif)
-        lbl_notif_sec.setStyleSheet("font-size: 13px; font-weight: 600; color: #FFFFFF;")
+        lbl_notif_sec = QLabel("🔔 Notifiche & Soglie di Alert", card_notif)
+        lbl_notif_sec.setStyleSheet("font-size: 12px; font-weight: 700; color: #FFFFFF;")
         layout_notif.addWidget(lbl_notif_sec)
 
         self.chk_notif = QCheckBox("Abilita Notifiche Push Native", card_notif)
         self.chk_notif.setChecked(self.config.notifications_enabled)
         self.chk_notif.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.chk_notif.setStyleSheet("color: #E4E4E7; font-size: 12px;")
         layout_notif.addWidget(self.chk_notif)
 
-        lbl_thresh_title = QLabel("Soglie di avviso (% di quota):", card_notif)
-        lbl_thresh_title.setStyleSheet("color: #A1A1AA; font-size: 11px; margin-top: 2px;")
+        lbl_thresh_title = QLabel("Soglie attive (% di quota) — clicca sui chip o digita:", card_notif)
+        lbl_thresh_title.setWordWrap(True)
+        lbl_thresh_title.setStyleSheet("color: #A1A1AA; font-size: 10px;")
         layout_notif.addWidget(lbl_thresh_title)
 
+        # Quick-toggle chips row (6 compact pills on 1 row)
+        grid_chips = QHBoxLayout()
+        grid_chips.setContentsMargins(0, 0, 0, 0)
+        grid_chips.setSpacing(5)
+        self._threshold_chips: dict[int, QPushButton] = {}
+        preset_values = [50, 75, 80, 90, 95, 100]
+
+        for val in preset_values:
+            btn = QPushButton(f"{val}%", card_notif)
+            btn.setFixedHeight(26)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.clicked.connect(lambda _, v=val: self._toggle_threshold_chip(v))
+            grid_chips.addWidget(btn, stretch=1)
+            self._threshold_chips[val] = btn
+
+        layout_notif.addLayout(grid_chips)
+
         self.txt_thresholds = QLineEdit(card_notif)
+        self.txt_thresholds.setFixedHeight(28)
         self.txt_thresholds.setText(", ".join(str(t) for t in sorted(self.config.thresholds)))
-        self.txt_thresholds.setPlaceholderText("es. 50, 75, 80, 95, 100")
+        self.txt_thresholds.setPlaceholderText("Valori separati da virgola, es. 50, 75, 80, 95, 100")
         self.txt_thresholds.setStyleSheet(
             """
             QLineEdit {
                 background-color: #121214;
                 border: 1px solid #3F3F46;
-                border-radius: 8px;
+                border-radius: 6px;
                 color: #FFFFFF;
-                padding: 7px 10px;
-                font-size: 12px;
-                min-height: 34px;
+                padding: 0px 8px;
+                font-size: 11px;
             }
             QLineEdit:focus { border-color: #3B82F6; }
         """
         )
         layout_notif.addWidget(self.txt_thresholds)
-
-        # Quick-toggle chips grid (2 rows of 3 buttons)
-        lbl_chips_hint = QLabel("Tocca una soglia per attivarla / disattivarla:", card_notif)
-        lbl_chips_hint.setStyleSheet("color: #71717A; font-size: 10px;")
-        layout_notif.addWidget(lbl_chips_hint)
-
-        grid_chips = QGridLayout()
-        grid_chips.setSpacing(6)
-        self._threshold_chips: dict[int, QPushButton] = {}
-        preset_values = [50, 75, 80, 90, 95, 100]
-
-        for idx, val in enumerate(preset_values):
-            btn = QPushButton(f"{val}%", card_notif)
-            btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn.clicked.connect(lambda _, v=val: self._toggle_threshold_chip(v))
-            row = idx // 3
-            col = idx % 3
-            grid_chips.addWidget(btn, row, col)
-            self._threshold_chips[val] = btn
-
-        layout_notif.addLayout(grid_chips)
         self.txt_thresholds.textChanged.connect(self._sync_threshold_chips)
         self._sync_threshold_chips()
 
-        # Burn-rate & Loop Detection Toggle
-        self.chk_burn_rate = QCheckBox("🔥 Avviso Consumo Rapido (Spike & Loop)", card_notif)
+        # Note: Use '&&' to escape ampersand in Qt QCheckBox so it displays '&' properly
+        self.chk_burn_rate = QCheckBox("🔥 Avviso Consumo Rapido (Spike && Loop)", card_notif)
         self.chk_burn_rate.setChecked(self.config.burn_rate_alert_enabled)
         self.chk_burn_rate.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.chk_burn_rate.setStyleSheet("color: #E4E4E7; font-size: 12px; margin-top: 8px;")
+        self.chk_burn_rate.setToolTip(
+            "Invia un avviso se il consumo cresce oltre +15% in meno di 10 minuti o oltre 35k token in un singolo turno."
+        )
         layout_notif.addWidget(self.chk_burn_rate)
 
-        lbl_burn_desc = QLabel("Avvisa se la quota sale oltre +15% in <10m o con turni enormi", card_notif)
+        lbl_burn_desc = QLabel("Avvisa se la quota sale oltre +15% in <10m o per picchi anomali di token.", card_notif)
+        lbl_burn_desc.setWordWrap(True)
         lbl_burn_desc.setStyleSheet("color: #71717A; font-size: 10px;")
         layout_notif.addWidget(lbl_burn_desc)
 
         vbox_settings.addWidget(card_notif)
 
-        # --- SECTION 3: CHIAVE API O ENTERPRISE (OPZIONALE) ---
-        card_key = QFrame(scroll_content)
-        card_key.setStyleSheet(
-            """
-            QFrame {
-                background-color: #1A1A1E;
-                border: 1px solid #2E2E34;
-                border-radius: 10px;
-                padding: 10px;
-            }
-        """
-        )
+        # --- CARD 3: AVANZATE & TOKEN MANUALE ---
+        card_key = QFrame(self.settings_view)
+        card_key.setObjectName("SectionCard")
         layout_key = QVBoxLayout(card_key)
-        layout_key.setContentsMargins(8, 8, 8, 8)
-        layout_key.setSpacing(6)
+        layout_key.setContentsMargins(10, 8, 10, 8)
+        layout_key.setSpacing(5)
 
-        lbl_key_sec = QLabel("⚙️ Inserimento Manuale (Opzionale)", card_key)
-        lbl_key_sec.setStyleSheet("font-size: 13px; font-weight: 600; color: #FFFFFF;")
+        lbl_key_sec = QLabel("🛠️ Avanzate & Chiave API (Opzionale)", card_key)
+        lbl_key_sec.setStyleSheet("font-size: 12px; font-weight: 700; color: #FFFFFF;")
         layout_key.addWidget(lbl_key_sec)
 
-        lbl_key_desc = QLabel("Admin Key (sk-ant-admin-...) o Token OAuth:", card_key)
-        lbl_key_desc.setStyleSheet("color: #A1A1AA; font-size: 11px;")
-        layout_key.addWidget(lbl_key_desc)
-
         self.txt_admin_key = QLineEdit(card_key)
-        self.txt_admin_key.setPlaceholderText("Incolla chiave sk-ant-admin-... o token")
+        self.txt_admin_key.setFixedHeight(28)
+        self.txt_admin_key.setPlaceholderText("Admin Key (sk-ant-admin-...) o Token OAuth manuale")
         self.txt_admin_key.setEchoMode(QLineEdit.EchoMode.Password)
         if self.config.admin_api_key:
             self.txt_admin_key.setText(self.config.admin_api_key)
@@ -594,222 +641,193 @@ class MicroFlyoutWindow(QWidget):
             QLineEdit {
                 background-color: #121214;
                 border: 1px solid #3F3F46;
-                border-radius: 8px;
+                border-radius: 6px;
                 color: #FFFFFF;
-                padding: 8px 12px;
-                font-size: 12px;
-                min-height: 36px;
+                padding: 0px 8px;
+                font-size: 11px;
             }
             QLineEdit:focus { border-color: #3B82F6; }
         """
         )
         layout_key.addWidget(self.txt_admin_key)
 
-        self.chk_mock = QCheckBox("Simulazione Demo (Mock Mode)", card_key)
+        self.chk_mock = QCheckBox("Modalità Simulazione Demo (Mock Mode)", card_key)
         self.chk_mock.setChecked(self.config.mock_mode)
         self.chk_mock.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.chk_mock.setStyleSheet("color: #A1A1AA; font-size: 11px; margin-top: 4px;")
+        self.chk_mock.setStyleSheet("color: #A1A1AA; font-size: 11px;")
         layout_key.addWidget(self.chk_mock)
 
         vbox_settings.addWidget(card_key)
+        vbox_settings.addStretch()
 
-        # Save Settings Action Button
-        btn_save_settings = QPushButton("💾 Salva Impostazioni", scroll_content)
-        btn_save_settings.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_save_settings.setStyleSheet(
+        # Pinned Save Button at the bottom of Settings Page
+        self.btn_save_settings = QPushButton("💾 Salva Impostazioni", self.settings_view)
+        self.btn_save_settings.setFixedHeight(32)
+        self.btn_save_settings.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_save_settings.setStyleSheet(
             """
             QPushButton {
-                background-color: #3B82F6;
+                background-color: #2563EB;
                 color: #FFFFFF;
-                padding: 10px 14px;
+                padding: 0px 14px;
                 border-radius: 8px;
-                font-size: 13px;
+                font-size: 12px;
                 font-weight: 600;
                 border: none;
-                min-height: 38px;
             }
-            QPushButton:hover { background-color: #2563EB; }
+            QPushButton:hover { background-color: #1D4ED8; }
         """
         )
-        btn_save_settings.clicked.connect(self._save_settings_action)
-        vbox_settings.addWidget(btn_save_settings)
+        self.btn_save_settings.clicked.connect(self._save_settings_action)
+        vbox_settings.addWidget(self.btn_save_settings)
 
-        # --- SECTION 4: INFORMAZIONI, HELP & CREDITI ---
-        card_about = QFrame(scroll_content)
-        card_about.setStyleSheet(
+        self.stacked_layout.addWidget(self.settings_view)
+
+    # =========================================================================
+    # PAGE 2: HELP & ABOUT VIEW (Dedicated Separate Page)
+    # =========================================================================
+    def _init_help_page(self) -> None:
+        self.help_view = QWidget()
+        vbox_help = QVBoxLayout(self.help_view)
+        vbox_help.setContentsMargins(0, 0, 0, 0)
+        vbox_help.setSpacing(7)
+
+        # --- HERO CARD: APP IDENTITY, VERSION & AUTHOR ---
+        hero_card = QFrame(self.help_view)
+        hero_card.setObjectName("HeroCard")
+        hero_layout = QVBoxLayout(hero_card)
+        hero_layout.setContentsMargins(12, 9, 12, 9)
+        hero_layout.setSpacing(4)
+
+        top_hero_row = QHBoxLayout()
+        lbl_app_title = QLabel("Claude Code Usage Widget", hero_card)
+        lbl_app_title.setStyleSheet("font-size: 13px; font-weight: 700; color: #FFFFFF;")
+        top_hero_row.addWidget(lbl_app_title)
+        top_hero_row.addStretch()
+
+        lbl_ver_badge = QLabel(f"v{__version__}", hero_card)
+        lbl_ver_badge.setStyleSheet(
             """
-            QFrame {
-                background-color: #1A1A1E;
-                border: 1px solid #2E2E34;
-                border-radius: 10px;
-                padding: 10px;
-            }
-        """
-        )
-        layout_about = QVBoxLayout(card_about)
-        layout_about.setContentsMargins(10, 10, 10, 10)
-        layout_about.setSpacing(8)
-
-        # Header con Titolo e Badge Versione
-        row_about_title = QHBoxLayout()
-        lbl_about_sec = QLabel("ℹ️ Guida & Informazioni", card_about)
-        lbl_about_sec.setStyleSheet("font-size: 13px; font-weight: 700; color: #FFFFFF;")
-        row_about_title.addWidget(lbl_about_sec)
-        row_about_title.addStretch()
-
-        lbl_version_badge = QLabel(f"v{__version__}", card_about)
-        lbl_version_badge.setStyleSheet(
-            """
-            background-color: #0369A1;
+            background-color: #0284C7;
             color: #F0F9FF;
             font-weight: 700;
             font-size: 11px;
             padding: 2px 8px;
             border-radius: 6px;
             border: 1px solid #38BDF8;
-            """
-        )
-        lbl_version_badge.setToolTip(f"Versione build: {__version__}")
-        row_about_title.addWidget(lbl_version_badge)
-        layout_about.addLayout(row_about_title)
-
-        lbl_creator = QLabel("Creato con cura e dedizione da giuspo 🚀", card_about)
-        lbl_creator.setStyleSheet("color: #38BDF8; font-size: 12px; font-weight: 600;")
-        layout_about.addWidget(lbl_creator)
-
-        lbl_ver_detail = QLabel(
-            f"📦 <b>Versione {__version__}</b> &nbsp;•&nbsp; <span style='color: #71717A;'>Schema Major.Minor.Compilation</span>",
-            card_about,
-        )
-        lbl_ver_detail.setStyleSheet("color: #D4D4D8; font-size: 11px; margin-bottom: 2px;")
-        layout_about.addWidget(lbl_ver_detail)
-
-        # Scopo del programma
-        lbl_purpose_title = QLabel("🎯 Scopo dell'Applicazione", card_about)
-        lbl_purpose_title.setStyleSheet("font-size: 11px; font-weight: 600; color: #E4E4E7; margin-top: 4px;")
-        layout_about.addWidget(lbl_purpose_title)
-
-        lbl_desc = QLabel(
-            "Claude Code Usage Widget è progettato per monitorare in tempo reale "
-            "le quote di utilizzo e il consumo di token (Input, Output, Thinking 🧠) "
-            "del tuo account Anthropic, senza dover aprire il browser o interrompere "
-            "il lavoro nel terminale. Ti avvisa prima che la quota si esaurisca.",
-            card_about,
-        )
-        lbl_desc.setWordWrap(True)
-        lbl_desc.setStyleSheet("color: #A1A1AA; font-size: 11px; line-height: 16px;")
-        layout_about.addWidget(lbl_desc)
-
-        # Come si utilizza
-        lbl_usage_title = QLabel("💡 Come si Utilizza", card_about)
-        lbl_usage_title.setStyleSheet("font-size: 11px; font-weight: 600; color: #E4E4E7; margin-top: 4px;")
-        layout_about.addWidget(lbl_usage_title)
-
-        lbl_guide = QLabel(
-            "1. Barra di Sistema (Tray):\n"
-            "   L'icona mostra a colpo d'occhio un anello circolare colorato (Verde <75%, Giallo 75-90%, Rosso >90%). "
-            "Passando il mouse sopra leggi la percentuale e l'orario esatto di reset.\n\n"
-            "2. Visualizzazione Metriche (Click sinistro):\n"
-            "   Clicca sull'icona per aprire la finestra con il tachimetro, i token spacchettati e passare "
-            "dalla sessione '5 Ore' al limite 'Settimanale'.\n\n"
-            "3. Connessione Account (1-Click):\n"
-            "   Nella sezione 'Account' clicca su 'Accedi con Claude': si aprirà il browser per autorizzare l'accesso in automatico.\n\n"
-            "4. Alert e Notifiche Anti-Loop:\n"
-            "   Il widget ti avvisa con notifiche push quando superi le soglie scelte o se rileva un picco anomalo di token improvvisi.",
-            card_about,
-        )
-        lbl_guide.setWordWrap(True)
-        lbl_guide.setStyleSheet("color: #9CA3AF; font-size: 10px; line-height: 15px;")
-        layout_about.addWidget(lbl_guide)
-
-        # Licenza Open Source Copyleft
-        lbl_license = QLabel("📜 Licenza: GNU General Public License v3 (GPL-3.0) • Open Source Copyleft", card_about)
-        lbl_license.setStyleSheet("color: #71717A; font-size: 10px; margin-top: 4px; font-style: italic;")
-        layout_about.addWidget(lbl_license)
-
-        vbox_settings.addWidget(card_about)
-
-        vbox_settings.addStretch()
-        scroll.setWidget(scroll_content)
-        settings_outer_layout.addWidget(scroll)
-
-        self.stacked_layout.addWidget(self.settings_view)
-        card_layout.addWidget(self.stacked_widget)
-
-        # Footer Actions
-        footer_layout = QHBoxLayout()
-        self.btn_toggle_settings = QPushButton("⚙️ Impostazioni", self.card)
-        self.btn_toggle_settings.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_toggle_settings.setStyleSheet(
-            """
-            QPushButton {
-                background: transparent;
-                color: #A1A1AA;
-                font-size: 12px;
-                border: none;
-                text-align: left;
-                padding: 4px 0px;
-            }
-            QPushButton:hover { color: #FFFFFF; }
         """
         )
-        self.btn_toggle_settings.clicked.connect(self._toggle_settings_page)
-        footer_layout.addWidget(self.btn_toggle_settings)
+        top_hero_row.addWidget(lbl_ver_badge)
+        hero_layout.addLayout(top_hero_row)
 
-        btn_help = QPushButton("ℹ️ Help", self.card)
-        btn_help.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_help.setStyleSheet(
-            """
-            QPushButton {
-                background: transparent;
-                color: #71717A;
-                font-size: 12px;
-                border: none;
-                padding: 4px 6px;
-            }
-            QPushButton:hover { color: #38BDF8; }
-        """
+        lbl_creator = QLabel("Ideato e sviluppato da <b>giuspo</b> 🚀", hero_card)
+        lbl_creator.setStyleSheet("color: #38BDF8; font-size: 11px;")
+        hero_layout.addWidget(lbl_creator)
+
+        lbl_schema = QLabel(
+            f"📦 <b>Versione {__version__}</b> &nbsp;•&nbsp; <span style='color:#94A3B8;'>Schema: Major.Minor.Compilation</span>",
+            hero_card,
         )
-        btn_help.clicked.connect(self._show_help_section)
-        footer_layout.addWidget(btn_help)
+        lbl_schema.setStyleSheet("color: #E2E8F0; font-size: 10px;")
+        hero_layout.addWidget(lbl_schema)
 
-        footer_layout.addStretch()
+        lbl_license = QLabel("🛡️ Licenza: GNU GPLv3 (GPL-3.0) • Open Source Copyleft", hero_card)
+        lbl_license.setWordWrap(True)
+        lbl_license.setStyleSheet("color: #94A3B8; font-size: 10px;")
+        hero_layout.addWidget(lbl_license)
 
-        btn_console = QPushButton("Console ↗", self.card)
-        btn_console.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_console.setStyleSheet(
-            """
-            QPushButton {
-                background: transparent;
-                color: #38BDF8;
-                font-size: 12px;
-                border: none;
-                padding: 4px 0px;
-            }
-            QPushButton:hover { text-decoration: underline; }
-        """
+        vbox_help.addWidget(hero_card)
+
+        # --- CARD: SCOPO DELL'APPLICAZIONE ---
+        purpose_card = QFrame(self.help_view)
+        purpose_card.setObjectName("SectionCard")
+        purpose_layout = QVBoxLayout(purpose_card)
+        purpose_layout.setContentsMargins(10, 8, 10, 8)
+        purpose_layout.setSpacing(4)
+
+        lbl_purpose_title = QLabel("🎯 Scopo del Programma", purpose_card)
+        lbl_purpose_title.setStyleSheet("font-size: 11px; font-weight: 700; color: #FFFFFF;")
+        purpose_layout.addWidget(lbl_purpose_title)
+
+        lbl_purpose_body = QLabel(
+            "Monitora in tempo reale dalla barra di sistema le quote d'uso (Sessione 5h e Settimanale 7g) "
+            "e i token (Input, Output, Thinking 🧠) del tuo account Claude Code, avvisandoti prima "
+            "di esaurire il plafond senza dover aprire il browser.",
+            purpose_card,
         )
-        btn_console.clicked.connect(self._open_console)
-        footer_layout.addWidget(btn_console)
+        lbl_purpose_body.setWordWrap(True)
+        lbl_purpose_body.setStyleSheet("color: #A1A1AA; font-size: 10px;")
+        purpose_layout.addWidget(lbl_purpose_body)
 
-        card_layout.addLayout(footer_layout)
-        main_layout.addWidget(self.card)
+        vbox_help.addWidget(purpose_card)
+
+        # --- CARD: COME SI UTILIZZA (4 STEP CHIARI) ---
+        guide_card = QFrame(self.help_view)
+        guide_card.setObjectName("SectionCard")
+        guide_layout = QVBoxLayout(guide_card)
+        guide_layout.setContentsMargins(10, 8, 10, 8)
+        guide_layout.setSpacing(5)
+
+        lbl_guide_title = QLabel("💡 Come si Utilizza", guide_card)
+        lbl_guide_title.setStyleSheet("font-size: 11px; font-weight: 700; color: #FFFFFF;")
+        guide_layout.addWidget(lbl_guide_title)
+
+        steps = [
+            (
+                "1. Anello nella Tray",
+                "Verde (<75%), Giallo (75-90%), Rosso (>90%). Passa il mouse sopra per l'orario di reset.",
+            ),
+            (
+                "2. Metriche 5h & 7g",
+                "Clicca sull'icona per vedere il tachimetro, i token Thinking e passare tra 5h e Settimanale.",
+            ),
+            (
+                "3. Login 1-Click",
+                "In 'Impostazioni' clicca su 'Accedi (1-Click)' per autenticarti via browser in automatico.",
+            ),
+            (
+                "4. Alert & Anti-Loop",
+                "Attiva i chip percentuali: riceverai notifiche push per soglie o picchi anomali di token.",
+            ),
+        ]
+
+        steps_grid = QGridLayout()
+        steps_grid.setContentsMargins(0, 0, 0, 0)
+        steps_grid.setHorizontalSpacing(6)
+        steps_grid.setVerticalSpacing(6)
+
+        for idx, (step_title, step_desc) in enumerate(steps):
+            step_box = QFrame(guide_card)
+            step_box.setObjectName("StepCard")
+            step_v = QVBoxLayout(step_box)
+            step_v.setContentsMargins(8, 6, 8, 6)
+            step_v.setSpacing(2)
+
+            lbl_st = QLabel(step_title, step_box)
+            lbl_st.setStyleSheet("color: #38BDF8; font-size: 11px; font-weight: 700;")
+            step_v.addWidget(lbl_st)
+
+            lbl_sd = QLabel(step_desc, step_box)
+            lbl_sd.setWordWrap(True)
+            lbl_sd.setStyleSheet("color: #D4D4D8; font-size: 10px;")
+            step_v.addWidget(lbl_sd)
+            step_v.addStretch()
+
+            steps_grid.addWidget(step_box, idx // 2, idx % 2)
+
+        guide_layout.addLayout(steps_grid)
+
+        vbox_help.addWidget(guide_card)
+        vbox_help.addStretch()
+
+        self.stacked_layout.addWidget(self.help_view)
 
     def _create_metric_card(self, title: str, value: str, subtitle: str) -> QFrame:
-        f = QFrame(self.card)
-        f.setStyleSheet(
-            """
-            QFrame {
-                background-color: #1A1A1E;
-                border: 1px solid #2E2E34;
-                border-radius: 10px;
-                padding: 10px 8px;
-            }
-        """
-        )
+        f = QFrame(self.metrics_view)
+        f.setObjectName("SectionCard")
         layout = QVBoxLayout(f)
-        layout.setContentsMargins(6, 6, 6, 6)
-        layout.setSpacing(4)
+        layout.setContentsMargins(10, 8, 10, 8)
+        layout.setSpacing(3)
 
         lbl_t = QLabel(title, f)
         lbl_t.setStyleSheet("font-size: 11px; color: #A1A1AA; font-weight: 500;")
@@ -826,6 +844,57 @@ class MicroFlyoutWindow(QWidget):
         layout.addWidget(lbl_s)
 
         return f
+
+    # =========================================================================
+    # NAVIGATION & STATE UPDATES
+    # =========================================================================
+    def switch_page(self, index: int) -> None:
+        """Switches the main stacked layout to page 0 (Metrics), 1 (Settings), or 2 (Help)."""
+        self.stacked_layout.setCurrentIndex(index)
+        self._update_nav_styles(index)
+
+    def _update_nav_styles(self, active_index: int) -> None:
+        active_qss = """
+            QPushButton {
+                background-color: #27272E;
+                color: #FFFFFF;
+                font-size: 11px;
+                font-weight: 700;
+                border: 1px solid #3B82F6;
+                border-radius: 7px;
+                padding: 6px 4px;
+            }
+        """
+        inactive_qss = """
+            QPushButton {
+                background-color: transparent;
+                color: #A1A1AA;
+                font-size: 11px;
+                font-weight: 500;
+                border: 1px solid transparent;
+                border-radius: 7px;
+                padding: 6px 4px;
+            }
+            QPushButton:hover {
+                color: #FFFFFF;
+                background-color: #202025;
+            }
+        """
+        buttons = [self.btn_nav_metrics, self.btn_nav_settings, self.btn_nav_help]
+        for idx, btn in enumerate(buttons):
+            btn.setStyleSheet(active_qss if idx == active_index else inactive_qss)
+
+    def _toggle_settings_page(self) -> None:
+        if self.stacked_layout.currentIndex() == 1:
+            self.switch_page(0)
+        else:
+            self.switch_page(1)
+
+    def _show_settings_section(self) -> None:
+        self.switch_page(1)
+
+    def _show_help_section(self) -> None:
+        self.switch_page(2)
 
     def update_snapshot(self, snap: UsageSnapshot) -> None:
         """Updates all UI components from a UsageSnapshot."""
@@ -927,9 +996,9 @@ class MicroFlyoutWindow(QWidget):
         )
         self.btn_logout.setVisible(is_connected)
         if is_connected:
-            self.btn_login.setText("🔄 Riconnetti con Claude (1-Click)")
+            self.btn_login.setText("🔄 Riconnetti (1-Click)")
         else:
-            self.btn_login.setText("🔑 Accedi con Claude (Login 1-Click)")
+            self.btn_login.setText("🔑 Accedi con Claude (1-Click)")
 
     def _select_window_tab(self, tab: str) -> None:
         """Switches the main gauge between 5-Hour and 7-Day window views."""
@@ -981,19 +1050,6 @@ class MicroFlyoutWindow(QWidget):
             self.show()
             self.activateWindow()
 
-    def _toggle_settings_page(self) -> None:
-        if self.stacked_layout.currentIndex() == 0:
-            self.stacked_layout.setCurrentIndex(1)
-            self.btn_toggle_settings.setText("⬅ Torna a Metriche")
-        else:
-            self.stacked_layout.setCurrentIndex(0)
-            self.btn_toggle_settings.setText("⚙️ Impostazioni")
-
-    def _show_help_section(self) -> None:
-        """Navigates to the Settings & Help page."""
-        self.stacked_layout.setCurrentIndex(1)
-        self.btn_toggle_settings.setText("⬅ Torna a Metriche")
-
     def _toggle_threshold_chip(self, val: int) -> None:
         """Toggles a percentage value in the thresholds input field."""
         current = self._parse_current_thresholds()
@@ -1027,10 +1083,9 @@ class MicroFlyoutWindow(QWidget):
                 color: #FFFFFF;
                 border: 1px solid #3B82F6;
                 border-radius: 6px;
-                padding: 4px 6px;
+                padding: 0px;
                 font-size: 11px;
-                font-weight: 600;
-                min-height: 26px;
+                font-weight: 700;
             }
             QPushButton:hover { background-color: #1D4ED8; }
         """
@@ -1040,10 +1095,9 @@ class MicroFlyoutWindow(QWidget):
                 color: #A1A1AA;
                 border: 1px solid #3F3F46;
                 border-radius: 6px;
-                padding: 4px 6px;
+                padding: 0px;
                 font-size: 11px;
                 font-weight: 500;
-                min-height: 26px;
             }
             QPushButton:hover {
                 background-color: #2E2E34;
@@ -1062,7 +1116,11 @@ class MicroFlyoutWindow(QWidget):
         admin_key = self.txt_admin_key.text().strip()
         self.config.admin_api_key = admin_key if admin_key else None
         save_config(self.config)
-        self._toggle_settings_page()
+
+        # Visual confirmation before returning to Metrics
+        self.btn_save_settings.setText("✅ Impostazioni Salvate!")
+        QTimer.singleShot(450, lambda: self.btn_save_settings.setText("💾 Salva Impostazioni"))
+        QTimer.singleShot(450, lambda: self.switch_page(0))
         self.refresh_requested.emit()
 
     def _open_console(self) -> None:
@@ -1078,9 +1136,11 @@ class MicroFlyoutWindow(QWidget):
         self.btn_login.setEnabled(False)
         self.btn_login.setText("⏳ In attesa login...")
         self.btn_cancel_login.setVisible(True)
+        self.lbl_login_status.setVisible(True)
         self.lbl_login_status.setText("Apertura finestra di login in corso...")
 
         def update_status(text: str) -> None:
+            self.lbl_login_status.setVisible(True)
             self.lbl_login_status.setText(text)
 
         async def login_task() -> None:
@@ -1093,7 +1153,7 @@ class MicroFlyoutWindow(QWidget):
                 self.btn_logout.setVisible(True)
                 self.refresh_requested.emit()
             else:
-                self.btn_login.setText("🔑 Accedi con Claude (Login 1-Click)")
+                self.btn_login.setText("🔑 Accedi con Claude (1-Click)")
 
         asyncio.create_task(login_task())
 
@@ -1101,15 +1161,17 @@ class MicroFlyoutWindow(QWidget):
         """Cancels the active login attempt."""
         ClaudeLoginHelper.cancel_login()
         self.btn_login.setEnabled(True)
-        self.btn_login.setText("🔑 Accedi con Claude (Login 1-Click)")
+        self.btn_login.setText("🔑 Accedi con Claude (1-Click)")
         self.btn_cancel_login.setVisible(False)
+        self.lbl_login_status.setVisible(True)
         self.lbl_login_status.setText("Login annullato. Puoi riprovare in qualsiasi momento.")
 
     def _perform_logout(self) -> None:
         """Clears local credentials and triggers logout state."""
         ClaudeLoginHelper.logout()
-        self.btn_login.setText("🔑 Accedi con Claude (Login 1-Click)")
+        self.btn_login.setText("🔑 Accedi con Claude (1-Click)")
         self.btn_login.setEnabled(True)
         self.btn_logout.setVisible(False)
+        self.lbl_login_status.setVisible(True)
         self.lbl_login_status.setText("Disconnessione effettuata. Clicca su 'Accedi' per riconnetterti.")
         self.logout_requested.emit()
