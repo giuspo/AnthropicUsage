@@ -54,7 +54,8 @@ def build_executable():
 
     print("Running:", " ".join(pyinstaller_cmd))
     env = os.environ.copy()
-    env["PYTHONPATH"] = str(SRC_DIR) + os.pathsep + env.get("PYTHONPATH", "")
+    site_packages = ROOT_DIR / ".venv" / "Lib" / "site-packages"
+    env["PYTHONPATH"] = str(SRC_DIR) + os.pathsep + str(site_packages) + os.pathsep + env.get("PYTHONPATH", "")
 
     result = subprocess.run(pyinstaller_cmd, cwd=str(ROOT_DIR), env=env)
     if result.returncode != 0:

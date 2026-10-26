@@ -20,6 +20,7 @@ PrivilegesRequired=lowest
 OutputDir=..\dist
 OutputBaseFilename=ClaudeUsageWidget-Setup
 SetupIconFile=..\src\claude_usage\resources\app_icon.ico
+LicenseFile=..\LICENSE
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern

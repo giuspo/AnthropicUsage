@@ -722,6 +722,11 @@ class MicroFlyoutWindow(QWidget):
         lbl_guide.setStyleSheet("color: #9CA3AF; font-size: 10px; line-height: 15px;")
         layout_about.addWidget(lbl_guide)
 
+        # Licenza Open Source Copyleft
+        lbl_license = QLabel("📜 Licenza: GNU General Public License v3 (GPL-3.0) • Open Source Copyleft", card_about)
+        lbl_license.setStyleSheet("color: #71717A; font-size: 10px; margin-top: 4px; font-style: italic;")
+        layout_about.addWidget(lbl_license)
+
         vbox_settings.addWidget(card_about)
 
         vbox_settings.addStretch()

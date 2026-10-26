@@ -3,6 +3,10 @@ name = "claude-usage-widget"
 version = "1.0.1"
 description = "Cross-platform System Tray Widget for Claude Code usage monitoring"
 readme = "README.md"
+authors = [
+    { name = "giuspo" }
+]
+license = { text = "GPL-3.0-or-later" }
 requires-python = ">=3.11"
 dependencies = [
     "desktop-notifier>=6.2.0",

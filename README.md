@@ -107,7 +107,11 @@ d:\Git\AnthropicUsage/
 
 ---
 
-## 📄 Licenza
+## 📄 Licenza e Crediti
 
-Distribuito sotto licenza MIT.
+Sviluppato con cura e dedizione da **giuspo** 🚀.
+
+Questo software è distribuito sotto licenza **GNU General Public License v3.0 (GPLv3)**.  
+Consulta il file [`LICENSE`](LICENSE) per i termini completi della licenza.  
+*Copyleft garantito: sei libero di usare, studiare e modificare il codice, purché ogni redistribuzione o modifica rimanga open source sotto la stessa licenza.*
 
