@@ -16,6 +16,22 @@ class AuthProviderType(str, Enum):
     NONE = "none"
 
 
+class ProviderId(str, Enum):
+    CLAUDE = "claude"
+    ANTIGRAVITY = "antigravity"
+
+
+class AntigravityTrayMode(str, Enum):
+    SINGLE_ICON = "single_icon"
+    SPLIT_PARTNER_ICON = "split_partner_icon"
+
+
+class AntigravitySinglePool(str, Enum):
+    GEMINI = "gemini"
+    PARTNER = "partner"
+    MAX_USED = "max_used"
+
+
 @dataclass
 class AuthState:
     provider: AuthProviderType = AuthProviderType.NONE
@@ -198,7 +214,70 @@ class UsageSnapshot:
 
 
 @dataclass
+class PartnerModelQuota:
+    model_id: str
+    display_name: str
+    five_hour: UsageWindow = field(default_factory=UsageWindow)
+    seven_day: UsageWindow = field(default_factory=UsageWindow)
+
+    @property
+    def primary_utilization(self) -> float:
+        return max(self.five_hour.utilization_pct, self.seven_day.utilization_pct)
+
+
+@dataclass
+class AntigravityUsageSnapshot:
+    gemini_5h: UsageWindow = field(default_factory=UsageWindow)
+    gemini_7d: UsageWindow = field(default_factory=UsageWindow)
+    partner_5h: UsageWindow = field(default_factory=UsageWindow)
+    partner_7d: UsageWindow = field(default_factory=UsageWindow)
+    partner_models: list[PartnerModelQuota] = field(default_factory=list)
+    ai_credits_balance: Optional[int] = None
+    use_g1_credits: bool = False
+    plan_name: str = "Google AI Pro"
+    account_email: Optional[str] = None
+    status_label: str = "Inizializzazione..."
+    is_offline: bool = False
+    is_rate_limited: bool = False
+    last_updated: datetime = field(default_factory=datetime.now)
+
+    @property
+    def primary_gemini_utilization(self) -> float:
+        return max(self.gemini_5h.utilization_pct, self.gemini_7d.utilization_pct)
+
+    @property
+    def primary_partner_utilization(self) -> float:
+        return max(self.partner_5h.utilization_pct, self.partner_7d.utilization_pct)
+
+    def get_single_pool_utilization(self, mode: str = "gemini") -> tuple[float, float, str]:
+        """Returns (5h_pct, 7d_pct, pool_label) based on the chosen single pool option."""
+        if mode == "partner":
+            return (self.partner_5h.utilization_pct, self.partner_7d.utilization_pct, "Partner")
+        elif mode == "max_used":
+            gem_max = max(self.gemini_5h.utilization_pct, self.gemini_7d.utilization_pct)
+            prt_max = max(self.partner_5h.utilization_pct, self.partner_7d.utilization_pct)
+            if prt_max > gem_max:
+                return (self.partner_5h.utilization_pct, self.partner_7d.utilization_pct, "Partner")
+            return (self.gemini_5h.utilization_pct, self.gemini_7d.utilization_pct, "Gemini")
+        return (self.gemini_5h.utilization_pct, self.gemini_7d.utilization_pct, "Gemini")
+
+
+@dataclass
+class CompositeUsageSnapshot:
+    claude: UsageSnapshot = field(default_factory=UsageSnapshot)
+    antigravity: AntigravityUsageSnapshot = field(default_factory=AntigravityUsageSnapshot)
+    last_updated: datetime = field(default_factory=datetime.now)
+
+
+@dataclass
 class AppConfig:
+    # Provider activation
+    enable_claude: bool = True
+    enable_antigravity: bool = True
+    antigravity_tray_mode: str = "single_icon"  # "single_icon" or "split_partner_icon"
+    antigravity_single_pool: str = "gemini"     # "gemini", "partner", or "max_used"
+
+    # Thresholds and alerts
     thresholds: list[int] = field(default_factory=lambda: [80, 95, 100])
     notifications_enabled: bool = True
     burn_rate_alert_enabled: bool = True

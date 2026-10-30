@@ -1,7 +1,7 @@
 [project]
 name = "claude-usage-widget"
-version = "1.0.8"
-description = "Cross-platform System Tray Widget for Claude Code usage monitoring"
+version = "2.0.0"
+description = "Cross-platform System Tray Widget for Claude Code & Google Antigravity usage monitoring"
 readme = "README.md"
 authors = [
     { name = "giuspo" }

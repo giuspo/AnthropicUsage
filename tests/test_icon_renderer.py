@@ -48,6 +48,20 @@ def test_render_pil_image():
     assert img_bars.size == (32, 32)
     assert img_bars.mode == "RGBA"
 
+    # Test rendering Antigravity Gemini icon
+    img_gemini = IconRenderer.render_pil_image(
+        five_hour_pct=35.0, seven_day_pct=20.0, style="concentric", provider_type="antigravity_gemini", target_size=32
+    )
+    assert img_gemini.size == (32, 32)
+    assert img_gemini.mode == "RGBA"
+
+    # Test rendering Antigravity Partner icon
+    img_partner = IconRenderer.render_pil_image(
+        five_hour_pct=50.0, seven_day_pct=40.0, style="split", provider_type="antigravity_partner", target_size=32
+    )
+    assert img_partner.size == (32, 32)
+    assert img_partner.mode == "RGBA"
+
 
 def test_app_icon_generation(tmp_path):
     icon_path = tmp_path / "custom_icon.png"

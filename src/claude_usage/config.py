@@ -40,6 +40,10 @@ def load_config() -> AppConfig:
         try:
             with open(config_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
+            cfg.enable_claude = data.get("enable_claude", True)
+            cfg.enable_antigravity = data.get("enable_antigravity", True)
+            cfg.antigravity_tray_mode = data.get("antigravity_tray_mode", "single_icon")
+            cfg.antigravity_single_pool = data.get("antigravity_single_pool", "gemini")
             cfg.thresholds = data.get("thresholds", [80, 95, 100])
             cfg.notifications_enabled = data.get("notifications_enabled", True)
             cfg.burn_rate_alert_enabled = data.get("burn_rate_alert_enabled", True)
@@ -68,6 +72,10 @@ def load_config() -> AppConfig:
 def save_config(cfg: AppConfig) -> None:
     config_file = get_config_file_path()
     data = {
+        "enable_claude": cfg.enable_claude,
+        "enable_antigravity": cfg.enable_antigravity,
+        "antigravity_tray_mode": cfg.antigravity_tray_mode,
+        "antigravity_single_pool": cfg.antigravity_single_pool,
         "thresholds": cfg.thresholds,
         "notifications_enabled": cfg.notifications_enabled,
         "burn_rate_alert_enabled": cfg.burn_rate_alert_enabled,
