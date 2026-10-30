@@ -208,6 +208,7 @@ class AppConfig:
     poll_interval_active_sec: int = 90
     poll_interval_idle_sec: int = 900
     autostart_enabled: bool = False
+    tray_icon_style: str = "concentric"  # "concentric" (Opzione A) or "split" (Opzione B)
     mock_mode: bool = False
     admin_api_key: Optional[str] = None
 

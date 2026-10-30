@@ -620,7 +620,45 @@ class MicroFlyoutWindow(QWidget):
 
         vbox_settings.addWidget(card_notif)
 
-        # --- CARD 3: AVANZATE & TOKEN MANUALE ---
+        # --- CARD 3: STILE ICONA TASKBAR (DOPPIA QUOTA) ---
+        card_style = QFrame(self.settings_view)
+        card_style.setObjectName("SectionCard")
+        layout_style = QVBoxLayout(card_style)
+        layout_style.setContentsMargins(10, 8, 10, 8)
+        layout_style.setSpacing(5)
+
+        lbl_style_sec = QLabel("🎨 Stile Icona Taskbar (Doppia Quota)", card_style)
+        lbl_style_sec.setStyleSheet("font-size: 12px; font-weight: 700; color: #FFFFFF;")
+        layout_style.addWidget(lbl_style_sec)
+
+        lbl_style_desc = QLabel("Scegli come visualizzare le percentuali 5h e 7g nella barra:", card_style)
+        lbl_style_desc.setStyleSheet("color: #A1A1AA; font-size: 10px;")
+        layout_style.addWidget(lbl_style_desc)
+
+        hbox_styles = QHBoxLayout()
+        hbox_styles.setContentsMargins(0, 2, 0, 0)
+        hbox_styles.setSpacing(6)
+
+        self._current_tray_style = getattr(self.config, "tray_icon_style", "concentric")
+
+        self.btn_style_concentric = QPushButton("⭕ Anelli Concentrici\n(Esterno 5h / Interno 7g)", card_style)
+        self.btn_style_concentric.setFixedHeight(38)
+        self.btn_style_concentric.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_style_concentric.clicked.connect(lambda: self._select_tray_style("concentric"))
+
+        self.btn_style_split = QPushButton("🌗 Archi Gemelli Split\n(Sinistra 5h / Destra 7g)", card_style)
+        self.btn_style_split.setFixedHeight(38)
+        self.btn_style_split.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_style_split.clicked.connect(lambda: self._select_tray_style("split"))
+
+        hbox_styles.addWidget(self.btn_style_concentric, stretch=1)
+        hbox_styles.addWidget(self.btn_style_split, stretch=1)
+        layout_style.addLayout(hbox_styles)
+        self._update_tray_style_buttons()
+
+        vbox_settings.addWidget(card_style)
+
+        # --- CARD 4: AVANZATE & TOKEN MANUALE ---
         card_key = QFrame(self.settings_view)
         card_key.setObjectName("SectionCard")
         layout_key = QVBoxLayout(card_key)
@@ -1114,10 +1152,51 @@ class MicroFlyoutWindow(QWidget):
         for val, btn in self._threshold_chips.items():
             btn.setStyleSheet(active_style if val in current else inactive_style)
 
+    def _select_tray_style(self, style_name: str) -> None:
+        self._current_tray_style = style_name
+        self._update_tray_style_buttons()
+
+    def _update_tray_style_buttons(self) -> None:
+        active_css = """
+            QPushButton {
+                background-color: #2563EB;
+                color: #FFFFFF;
+                border: 1px solid #3B82F6;
+                border-radius: 6px;
+                font-size: 10px;
+                font-weight: 600;
+                text-align: center;
+                padding: 2px 4px;
+            }
+        """
+        inactive_css = """
+            QPushButton {
+                background-color: #18181B;
+                color: #A1A1AA;
+                border: 1px solid #3F3F46;
+                border-radius: 6px;
+                font-size: 10px;
+                font-weight: 500;
+                text-align: center;
+                padding: 2px 4px;
+            }
+            QPushButton:hover {
+                background-color: #27272A;
+                color: #FAFAFA;
+            }
+        """
+        if getattr(self, "_current_tray_style", "concentric") == "split":
+            self.btn_style_split.setStyleSheet(active_css)
+            self.btn_style_concentric.setStyleSheet(inactive_css)
+        else:
+            self.btn_style_concentric.setStyleSheet(active_css)
+            self.btn_style_split.setStyleSheet(inactive_css)
+
     def _save_settings_action(self) -> None:
         self.config.notifications_enabled = self.chk_notif.isChecked()
         self.config.burn_rate_alert_enabled = self.chk_burn_rate.isChecked()
         self.config.mock_mode = self.chk_mock.isChecked()
+        self.config.tray_icon_style = getattr(self, "_current_tray_style", "concentric")
         
         # Update autostart if toggled
         new_autostart = self.chk_autostart.isChecked()

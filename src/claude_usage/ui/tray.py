@@ -125,11 +125,13 @@ class TrayController(QSystemTrayIcon):
 
     def update_snapshot(self, snap: UsageSnapshot) -> None:
         """Updates the tray icon and formatted tooltip."""
-        # 1. Update dynamic icon with Dual Concentric Activity Rings (5h outer, 7d inner)
+        # 1. Update dynamic icon with selected style (concentric or split)
+        style = getattr(self.flyout.config, "tray_icon_style", "concentric")
         icon = IconRenderer.render_tray_icon(
             five_hour_pct=snap.five_hour.utilization_pct,
             seven_day_pct=snap.seven_day.utilization_pct,
             is_offline=snap.is_offline,
+            style=style,
         )
         self.setIcon(icon)
 
