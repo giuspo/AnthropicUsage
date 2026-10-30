@@ -1,4 +1,4 @@
-"""Dynamic System Tray Icon Renderer with Dual Concentric Activity Rings."""
+"""Dynamic System Tray Icon Renderer with Configurable Activity Rings."""
 
 from __future__ import annotations
 
@@ -16,10 +16,10 @@ from claude_usage.ui.theme import get_status_color
 
 class IconRenderer:
     """Renders crisp circular progress rings with the Claude spark logo at runtime.
-    
-    Supports dual concentric activity rings:
-    - Outer Ring: 5-Hour session quota (immediate working velocity)
-    - Inner Ring: 7-Day weekly quota (long-term safety ceiling)
+
+    Supports two customizable tray icon styles:
+    - "concentric": Dual Concentric Rings (Outer 5h session, Inner 7d weekly)
+    - "split": Split Dual Semicircles (Left 5h session, Right 7d weekly)
     """
 
     CANVAS_SIZE = 256  # 4x Supersampling base
@@ -31,6 +31,7 @@ class IconRenderer:
         five_hour_pct: float,
         seven_day_pct: Optional[float] = None,
         is_offline: bool = False,
+        style: str = "concentric",
         size: int = TARGET_SIZE,
     ) -> QIcon:
         """Generates a QIcon representing current quota utilization with dual rings."""
@@ -38,6 +39,7 @@ class IconRenderer:
             five_hour_pct=five_hour_pct,
             seven_day_pct=seven_day_pct,
             is_offline=is_offline,
+            style=style,
             target_size=size,
         )
         byte_arr = io.BytesIO()
@@ -52,6 +54,7 @@ class IconRenderer:
         five_hour_pct: float,
         seven_day_pct: Optional[float] = None,
         is_offline: bool = False,
+        style: str = "concentric",
         target_size: int = TARGET_SIZE,
     ) -> Image.Image:
         """Draws the 256x256 vector supersampled icon and downsamples to target_size."""
@@ -61,7 +64,6 @@ class IconRenderer:
         cx = dim / 2.0
         cy = dim / 2.0
 
-        # If seven_day_pct is None, fallback to single ring or mirror five_hour_pct
         p_5h = max(0.0, min(100.0, float(five_hour_pct)))
         p_7d = max(0.0, min(100.0, float(seven_day_pct))) if seven_day_pct is not None else p_5h
 
@@ -74,44 +76,7 @@ class IconRenderer:
         color_7d = (rgb_7d[0], rgb_7d[1], rgb_7d[2], 255)
         track_7d = (rgb_7d[0], rgb_7d[1], rgb_7d[2], 55)
 
-        # -------------------------------------------------------------
-        # 1. OUTER RING: 5-Hour Session Quota (Active Turn)
-        # -------------------------------------------------------------
-        r_outer = 112.0
-        w_outer = 22.0
-        cls._draw_arc_with_caps(
-            draw=draw,
-            cx=cx,
-            cy=cy,
-            radius=r_outer,
-            width=w_outer,
-            start_deg=270.0,
-            sweep_deg=(p_5h / 100.0) * 360.0,
-            color=color_5h,
-            track_color=track_5h,
-        )
-
-        # -------------------------------------------------------------
-        # 2. INNER RING: 7-Day Weekly Quota (Global Ceiling)
-        # -------------------------------------------------------------
-        r_inner = 78.0
-        w_inner = 18.0
-        cls._draw_arc_with_caps(
-            draw=draw,
-            cx=cx,
-            cy=cy,
-            radius=r_inner,
-            width=w_inner,
-            start_deg=270.0,
-            sweep_deg=(p_7d / 100.0) * 360.0,
-            color=color_7d,
-            track_color=track_7d,
-        )
-
-        # -------------------------------------------------------------
-        # 3. CENTRAL CLAUDE SPARK / STARBURST VECTOR LOGO
-        # -------------------------------------------------------------
-        # Use primary bottleneck color or warm Claude terracotta
+        # Central Spark color
         if max(p_5h, p_7d) >= 90.0:
             spark_color = (239, 68, 68, 255)  # Critical Alert Red
         elif max(p_5h, p_7d) >= 75.0:
@@ -119,11 +84,80 @@ class IconRenderer:
         else:
             spark_color = (218, 119, 86, 255)  # Iconic Claude Terracotta #DA7756
 
-        cls._draw_claude_spark(draw, cx, cy, spark_radius=38.0, color=spark_color)
+        if style == "split":
+            # -------------------------------------------------------------
+            # STYLE B: SPLIT RING / ARCHI GEMELLI (Sinistra 5h, Destra 7g)
+            # -------------------------------------------------------------
+            r = 110.0
+            w = 26.0
 
-        # -------------------------------------------------------------
-        # 4. Anti-Aliased Lanczos Downsampling
-        # -------------------------------------------------------------
+            # Right Semicircle (7d): starts at 274 deg (top-right) and sweeps clockwise to 86 deg (172 deg span)
+            cls._draw_split_arc(
+                draw=draw,
+                cx=cx,
+                cy=cy,
+                radius=r,
+                width=w,
+                start_deg=274.0,
+                sweep_deg=(p_7d / 100.0) * 172.0,
+                color=color_7d,
+                track_color=track_7d,
+                is_clockwise=True,
+            )
+
+            # Left Semicircle (5h): starts at 266 deg (top-left) and sweeps counter-clockwise to 94 deg (172 deg span)
+            cls._draw_split_arc(
+                draw=draw,
+                cx=cx,
+                cy=cy,
+                radius=r,
+                width=w,
+                start_deg=266.0,
+                sweep_deg=(p_5h / 100.0) * 172.0,
+                color=color_5h,
+                track_color=track_5h,
+                is_clockwise=False,
+            )
+
+            # Central Claude Spark (generous 48px)
+            cls._draw_claude_spark(draw, cx, cy, spark_radius=48.0, color=spark_color)
+        else:
+            # -------------------------------------------------------------
+            # STYLE A: DUAL CONCENTRIC RINGS (Esterno 5h, Interno 7g)
+            # -------------------------------------------------------------
+            # Outer Ring (5h): radius 112, width 22
+            r_outer = 112.0
+            w_outer = 22.0
+            cls._draw_arc_with_caps(
+                draw=draw,
+                cx=cx,
+                cy=cy,
+                radius=r_outer,
+                width=w_outer,
+                start_deg=270.0,
+                sweep_deg=(p_5h / 100.0) * 360.0,
+                color=color_5h,
+                track_color=track_5h,
+            )
+
+            # Inner Ring (7d): radius 78, width 18
+            r_inner = 78.0
+            w_inner = 18.0
+            cls._draw_arc_with_caps(
+                draw=draw,
+                cx=cx,
+                cy=cy,
+                radius=r_inner,
+                width=w_inner,
+                start_deg=270.0,
+                sweep_deg=(p_7d / 100.0) * 360.0,
+                color=color_7d,
+                track_color=track_7d,
+            )
+
+            # Central Claude Spark (compact 38px)
+            cls._draw_claude_spark(draw, cx, cy, spark_radius=38.0, color=spark_color)
+
         return img.resize((target_size, target_size), Image.Resampling.LANCZOS)
 
     @classmethod
@@ -162,6 +196,62 @@ class IconRenderer:
             ex = cx + radius * math.cos(e_rad)
             ey = cy + radius * math.sin(e_rad)
             draw.ellipse((ex - cap_r, ey - cap_r, ex + cap_r, ey + cap_r), fill=color)
+
+    @classmethod
+    def _draw_split_arc(
+        cls,
+        draw: ImageDraw.ImageDraw,
+        cx: float,
+        cy: float,
+        radius: float,
+        width: float,
+        start_deg: float,
+        sweep_deg: float,
+        color: tuple,
+        track_color: tuple,
+        is_clockwise: bool = True,
+    ) -> None:
+        """Draws a 172-degree semicircle track and a progress arc for split mode."""
+        bbox = (cx - radius, cy - radius, cx + radius, cy + radius)
+        cap_r = width / 2.0
+
+        if is_clockwise:
+            # Right side: from start_deg (274) clockwise by 172 deg (towards 86 deg)
+            draw.arc(bbox, start=start_deg, end=start_deg + 172.0, fill=track_color, width=int(width))
+            if sweep_deg > 0.5:
+                end_deg = start_deg + min(172.0, sweep_deg)
+                draw.arc(bbox, start=start_deg, end=end_deg, fill=color, width=int(width))
+
+                # Start cap (at 12 o'clock side)
+                s_rad = math.radians(start_deg)
+                sx = cx + radius * math.cos(s_rad)
+                sy = cy + radius * math.sin(s_rad)
+                draw.ellipse((sx - cap_r, sy - cap_r, sx + cap_r, sy + cap_r), fill=color)
+
+                # End cap (advancing downwards)
+                e_rad = math.radians(end_deg)
+                ex = cx + radius * math.cos(e_rad)
+                ey = cy + radius * math.sin(e_rad)
+                draw.ellipse((ex - cap_r, ey - cap_r, ex + cap_r, ey + cap_r), fill=color)
+        else:
+            # Left side: start_deg is 266 (top-left). Full track in PIL clockwise angles is 94 to 266
+            draw.arc(bbox, start=94.0, end=266.0, fill=track_color, width=int(width))
+            if sweep_deg > 0.5:
+                arc_start = max(94.0, 266.0 - min(172.0, sweep_deg))
+                arc_end = 266.0
+                draw.arc(bbox, start=arc_start, end=arc_end, fill=color, width=int(width))
+
+                # Top cap (at 12 o'clock side)
+                s_rad = math.radians(arc_end)
+                sx = cx + radius * math.cos(s_rad)
+                sy = cy + radius * math.sin(s_rad)
+                draw.ellipse((sx - cap_r, sy - cap_r, sx + cap_r, sy + cap_r), fill=color)
+
+                # Advancing cap (moving downwards on left side)
+                e_rad = math.radians(arc_start)
+                ex = cx + radius * math.cos(e_rad)
+                ey = cy + radius * math.sin(e_rad)
+                draw.ellipse((ex - cap_r, ey - cap_r, ex + cap_r, ey + cap_r), fill=color)
 
     @classmethod
     def _draw_claude_spark(
