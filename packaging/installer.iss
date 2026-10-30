@@ -2,7 +2,7 @@
 ; Produces a modern, lightweight, non-admin Windows Installer
 
 #define MyAppName "Claude Code Usage Widget"
-#define MyAppVersion "1.0.3"
+#define MyAppVersion "1.0.4"
 #define MyAppPublisher "giuspo"
 #define MyAppExeName "ClaudeUsageWidget.exe"
 #define MyAppAssocName MyAppName + " File"
@@ -40,7 +40,17 @@ Source: "..\dist\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\{#MyAppExeName}"
 Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon; IconFilename: "{app}\{#MyAppExeName}"
-Name: "{userstartup}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: autostart; IconFilename: "{app}\{#MyAppExeName}"
+
+[InstallDelete]
+; Clean up redundant startup shortcuts created by older installer versions (prevents duplicate instance at boot)
+Type: files; Name: "{userstartup}\{#MyAppName}.lnk"
+Type: files; Name: "{userstartup}\ClaudeUsageWidget.lnk"
+Type: files; Name: "{userstartup}\Claude Code Usage.lnk"
+
+[UninstallDelete]
+Type: files; Name: "{userstartup}\{#MyAppName}.lnk"
+Type: files; Name: "{userstartup}\ClaudeUsageWidget.lnk"
+Type: files; Name: "{userstartup}\Claude Code Usage.lnk"
 
 [Registry]
 Root: HKCU; Subkey: "Software\Classes\AppUserModelId\ClaudeCode.UsageWidget"; ValueType: string; ValueName: "DisplayName"; ValueData: "{#MyAppName}"; Flags: uninsdeletekey
