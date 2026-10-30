@@ -89,19 +89,26 @@ def build_executable():
     if iscc_path:
         print("\nCompiling standard Windows Setup Wizard with Inno Setup 6...")
         iss_path = ROOT_DIR / "packaging" / "installer.iss"
-        res = subprocess.run([iscc_path, str(iss_path)], cwd=str(ROOT_DIR))
+        iscc_cmd = [iscc_path, f"/DMyAppVersion={__version__}", str(iss_path)]
+        res = subprocess.run(iscc_cmd, cwd=str(ROOT_DIR))
         if res.returncode == 0:
-            setup_exe = ROOT_DIR / "dist" / "ClaudeUsageWidget-Setup.exe"
+            setup_exe = ROOT_DIR / "dist" / f"ClaudeUsageWidget-Setup-v{__version__}.exe"
             if setup_exe.exists():
                 print("=" * 60)
                 print(f"SUCCESS: Setup Wizard created at: {setup_exe}")
                 print(f"Setup Size: {setup_exe.stat().st_size / (1024 * 1024):.1f} MB")
                 print("=" * 60)
+                # Keep a legacy unversioned copy for automated shortcuts
+                legacy_setup = ROOT_DIR / "dist" / "ClaudeUsageWidget-Setup.exe"
+                try:
+                    shutil.copy2(setup_exe, legacy_setup)
+                except Exception:
+                    pass
 
     # 4. Create release zip archive with version
     dist_dir = ROOT_DIR / "dist"
     dist_exe = dist_dir / "ClaudeUsageWidget.exe"
-    dist_setup = dist_dir / "ClaudeUsageWidget-Setup.exe"
+    dist_setup = dist_dir / f"ClaudeUsageWidget-Setup-v{__version__}.exe"
     zip_path = dist_dir / f"ClaudeUsageWidget-v{__version__}-Windows.zip"
 
     if dist_exe.exists():
@@ -109,7 +116,7 @@ def build_executable():
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
             z.write(dist_exe, "ClaudeUsageWidget.exe")
             if dist_setup.exists():
-                z.write(dist_setup, "ClaudeUsageWidget-Setup.exe")
+                z.write(dist_setup, dist_setup.name)
         print(f"SUCCESS: Release archive ready at: {zip_path}")
         print(f"Archive Size: {zip_path.stat().st_size / (1024 * 1024):.1f} MB")
         print("=" * 60)

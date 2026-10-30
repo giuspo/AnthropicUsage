@@ -2,7 +2,9 @@
 ; Produces a modern, lightweight, non-admin Windows Installer
 
 #define MyAppName "Claude Code Usage Widget"
+#ifndef MyAppVersion
 #define MyAppVersion "1.0.8"
+#endif
 #define MyAppPublisher "giuspo"
 #define MyAppExeName "ClaudeUsageWidget.exe"
 #define MyAppAssocName MyAppName + " File"
@@ -18,7 +20,7 @@ DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 OutputDir=..\dist
-OutputBaseFilename=ClaudeUsageWidget-Setup
+OutputBaseFilename=ClaudeUsageWidget-Setup-v{#MyAppVersion}
 SetupIconFile=..\src\claude_usage\resources\app_icon.ico
 LicenseFile=..\LICENSE
 Compression=lzma2/ultra64
