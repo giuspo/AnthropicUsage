@@ -89,6 +89,8 @@ class SemiCircleGauge(QWidget):
         else:
             if self.color_theme == "blue":
                 color = QColor(96, 165, 250)  # Google Azure
+            elif self.color_theme == "emerald":
+                color = QColor(16, 185, 129)  # Partner Emerald
             else:
                 color = QColor(56, 189, 248)  # Electric Cyan
 
@@ -565,64 +567,86 @@ class MicroFlyoutWindow(QWidget):
         vbox.setContentsMargins(0, 4, 0, 0)
         vbox.setSpacing(6)
 
-        # Workspace title
+        # 1. Workspace / Plan title
         self.lbl_agy_title = QLabel("Google Antigravity (Google AI Pro)", self.subview_antigravity)
         self.lbl_agy_title.setStyleSheet("font-size: 13px; font-weight: 700; color: #FFFFFF;")
         vbox.addWidget(self.lbl_agy_title)
 
-        # Card 1: Gemini Pool
-        card_gem = QFrame(self.subview_antigravity)
-        card_gem.setObjectName("SectionCard")
-        gem_layout = QVBoxLayout(card_gem)
-        gem_layout.setContentsMargins(12, 8, 12, 8)
-        gem_layout.setSpacing(4)
+        # 2. Window / Pool selector tabs
+        tab_container = QFrame(self.subview_antigravity)
+        tab_container.setObjectName("SectionCard")
+        tab_layout = QHBoxLayout(tab_container)
+        tab_layout.setContentsMargins(4, 3, 4, 3)
+        tab_layout.setSpacing(4)
 
-        lbl_gem_title = QLabel("✨ Pool Gemini (Flash, Pro, Next)", card_gem)
-        lbl_gem_title.setStyleSheet("font-size: 11px; font-weight: 700; color: #60A5FA;")
-        gem_layout.addWidget(lbl_gem_title)
+        self.btn_agy_gemini = QPushButton("✨ Pool Gemini", tab_container)
+        self.btn_agy_partner = QPushButton("🤝 Modelli Partner", tab_container)
+        for b in (self.btn_agy_gemini, self.btn_agy_partner):
+            b.setFixedHeight(26)
+            b.setCursor(Qt.CursorShape.PointingHandCursor)
 
-        self.lbl_gem_5h = QLabel("⏱️ Sessione 5h: 0%  (Reset in --)", card_gem)
-        self.lbl_gem_5h.setStyleSheet("color: #D4D4D8; font-size: 11px;")
-        gem_layout.addWidget(self.lbl_gem_5h)
+        self._active_agy_tab = "gemini"
+        self.btn_agy_gemini.clicked.connect(lambda: self._select_antigravity_tab("gemini"))
+        self.btn_agy_partner.clicked.connect(lambda: self._select_antigravity_tab("partner"))
+        tab_layout.addWidget(self.btn_agy_gemini)
+        tab_layout.addWidget(self.btn_agy_partner)
+        vbox.addWidget(tab_container)
 
-        self.lbl_gem_7d = QLabel("📅 Settimanale: 0%  (Reset in --)", card_gem)
-        self.lbl_gem_7d.setStyleSheet("color: #D4D4D8; font-size: 11px;")
-        gem_layout.addWidget(self.lbl_gem_7d)
-        vbox.addWidget(card_gem)
+        # 3. Radial Gauge container (Identical to Claude Code radial gauge)
+        gauge_container = QWidget(self.subview_antigravity)
+        gauge_layout = QVBoxLayout(gauge_container)
+        gauge_layout.setContentsMargins(0, 2, 0, 2)
+        gauge_layout.setSpacing(1)
 
-        # Card 2: Partner Models Breakdown (All models)
-        self.card_partner_models = QFrame(self.subview_antigravity)
-        self.card_partner_models.setObjectName("SectionCard")
-        self.layout_partner_models = QVBoxLayout(self.card_partner_models)
-        self.layout_partner_models.setContentsMargins(12, 8, 12, 8)
-        self.layout_partner_models.setSpacing(5)
+        self.antigravity_gauge = SemiCircleGauge(color_theme="blue", parent=gauge_container)
+        gauge_layout.addWidget(self.antigravity_gauge, alignment=Qt.AlignmentFlag.AlignCenter)
 
-        lbl_prt_title = QLabel("🤝 Modelli Partner (Claude & GPT su Antigravity)", self.card_partner_models)
-        lbl_prt_title.setStyleSheet("font-size: 11px; font-weight: 700; color: #10B981;")
-        self.layout_partner_models.addWidget(lbl_prt_title)
+        self.lbl_agy_reset_timer = QLabel("Reset in --", gauge_container)
+        self.lbl_agy_reset_timer.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_agy_reset_timer.setStyleSheet("font-size: 11px; color: #A1A1AA;")
+        gauge_layout.addWidget(self.lbl_agy_reset_timer)
+        vbox.addWidget(gauge_container)
 
-        # Dynamic container for partner model rows
-        self.partner_rows_widget = QWidget(self.card_partner_models)
-        self.partner_rows_layout = QVBoxLayout(self.partner_rows_widget)
-        self.partner_rows_layout.setContentsMargins(0, 0, 0, 0)
-        self.partner_rows_layout.setSpacing(4)
-        self.layout_partner_models.addWidget(self.partner_rows_widget)
-        vbox.addWidget(self.card_partner_models)
+        # 4. Dual row overview card
+        self.agy_dual_card = QFrame(self.subview_antigravity)
+        self.agy_dual_card.setObjectName("SectionCard")
+        dual_layout = QVBoxLayout(self.agy_dual_card)
+        dual_layout.setContentsMargins(10, 6, 10, 6)
+        dual_layout.setSpacing(3)
 
-        # Card 3: Google Account & Credits
-        card_credits = QFrame(self.subview_antigravity)
-        card_credits.setObjectName("SectionCard")
-        cred_layout = QHBoxLayout(card_credits)
-        cred_layout.setContentsMargins(12, 8, 12, 8)
-        cred_layout.setSpacing(8)
+        self.lbl_agy_row_5h = QLabel("⏱️ Sessione 5h: 0%", self.agy_dual_card)
+        self.lbl_agy_row_5h.setStyleSheet("color: #D4D4D8; font-size: 11px;")
+        dual_layout.addWidget(self.lbl_agy_row_5h)
 
-        self.lbl_credits_info = QLabel("💳 AI Credits: Disponibili  •  Account: giuliosporti@gmail.com", card_credits)
-        self.lbl_credits_info.setStyleSheet("color: #A1A1AA; font-size: 10px;")
+        self.lbl_agy_row_7d = QLabel("📅 Settimanale: 0%", self.agy_dual_card)
+        self.lbl_agy_row_7d.setStyleSheet("color: #D4D4D8; font-size: 11px;")
+        dual_layout.addWidget(self.lbl_agy_row_7d)
+        vbox.addWidget(self.agy_dual_card)
+
+        # 5. Bottom 3 Metric Cards Grid
+        cards_layout = QHBoxLayout()
+        cards_layout.setSpacing(6)
+        self.card_agy_c1 = self._create_metric_card("Gemini Flash", "0%", "modello")
+        self.card_agy_c2 = self._create_metric_card("Gemini Pro", "0%", "modello")
+        self.card_agy_c3 = self._create_metric_card("AI Credits", "Inclusi", "Google One")
+        cards_layout.addWidget(self.card_agy_c1)
+        cards_layout.addWidget(self.card_agy_c2)
+        cards_layout.addWidget(self.card_agy_c3)
+        vbox.addLayout(cards_layout)
+
+        # 6. Bottom info row (Credits & Account)
+        self.card_agy_footer = QFrame(self.subview_antigravity)
+        self.card_agy_footer.setObjectName("SectionCard")
+        cred_layout = QHBoxLayout(self.card_agy_footer)
+        cred_layout.setContentsMargins(10, 5, 10, 5)
+        self.lbl_credits_info = QLabel("💳 AI Credits: Disponibili  •  Account: Google Account", self.card_agy_footer)
+        self.lbl_credits_info.setStyleSheet("color: #71717A; font-size: 10px;")
         cred_layout.addWidget(self.lbl_credits_info)
-        vbox.addWidget(card_credits)
+        vbox.addWidget(self.card_agy_footer)
 
         vbox.addStretch()
         self.sub_stacked_layout.addWidget(self.subview_antigravity)
+        self._select_antigravity_tab("gemini")
 
     def _select_metrics_subview(self, view_id: str) -> None:
         self._active_metrics_subview = view_id
@@ -650,6 +674,23 @@ class MicroFlyoutWindow(QWidget):
 
         if self._last_composite:
             self._update_claude_subview(self._last_composite.claude)
+
+    def _select_antigravity_tab(self, tab: str) -> None:
+        self._active_agy_tab = tab
+        active_css = "QPushButton { background-color: #27272A; color: #FFFFFF; border-radius: 5px; font-weight: 600; font-size: 11px; border: 1px solid #3F3F46; }"
+        inactive_css = "QPushButton { background-color: transparent; color: #71717A; border-radius: 5px; font-weight: 500; font-size: 11px; border: none; } QPushButton:hover { color: #D4D4D8; }"
+
+        if tab == "partner":
+            self.btn_agy_partner.setStyleSheet(active_css)
+            self.btn_agy_gemini.setStyleSheet(inactive_css)
+            self.antigravity_gauge.color_theme = "emerald"
+        else:
+            self.btn_agy_gemini.setStyleSheet(active_css)
+            self.btn_agy_partner.setStyleSheet(inactive_css)
+            self.antigravity_gauge.color_theme = "blue"
+
+        if self._last_composite and self._last_composite.antigravity:
+            self._update_antigravity_subview(self._last_composite.antigravity)
 
     # =========================================================================
     # PAGE 1: SETTINGS VIEW (Multi-Provider Configuration, Zero Clipping)
@@ -1225,47 +1266,75 @@ class MicroFlyoutWindow(QWidget):
             val_think.setText(format_number(snap.tokens.thinking_tokens))
 
     def _update_antigravity_subview(self, ag: AntigravityUsageSnapshot) -> None:
-        self.lbl_gem_5h.setText(f"⏱️ Sessione 5h: {int(round(ag.gemini_5h.utilization_pct))}%  (Reset in {ag.gemini_5h.time_remaining_str})")
-        self.lbl_gem_7d.setText(f"📅 Settimanale: {int(round(ag.gemini_7d.utilization_pct))}%  (Reset in {ag.gemini_7d.time_remaining_str})")
+        tab = getattr(self, "_active_agy_tab", "gemini")
 
-        # Repopulate partner models rows dynamically
-        while self.partner_rows_layout.count():
-            item = self.partner_rows_layout.takeAt(0)
-            w = item.widget()
-            if w:
-                w.deleteLater()
-
-        if ag.partner_models:
-            for m in ag.partner_models:
-                row = QFrame(self.partner_rows_widget)
-                r_layout = QHBoxLayout(row)
-                r_layout.setContentsMargins(0, 1, 0, 1)
-                r_layout.setSpacing(6)
-
-                lbl_name = QLabel(m.display_name, row)
-                lbl_name.setStyleSheet("color: #E4E4E7; font-size: 11px; font-weight: 500;")
-                r_layout.addWidget(lbl_name, stretch=3)
-
-                pct_int = int(round(m.five_hour.utilization_pct))
-                lbl_val = QLabel(f"{pct_int}% (5h)", row)
-                col_hex = "#EF4444" if pct_int >= 90 else ("#F59E0B" if pct_int >= 75 else "#10B981")
-                lbl_val.setStyleSheet(f"color: {col_hex}; font-weight: 700; font-size: 11px;")
-                r_layout.addWidget(lbl_val, stretch=1)
-
-                lbl_time = QLabel(m.five_hour.time_remaining_str, row)
-                lbl_time.setStyleSheet("color: #71717A; font-size: 10px;")
-                r_layout.addWidget(lbl_time, stretch=1)
-
-                self.partner_rows_layout.addWidget(row)
-        else:
-            lbl_none = QLabel("Nessun limite attivo per i modelli Partner", self.partner_rows_widget)
-            lbl_none.setStyleSheet("color: #71717A; font-size: 10px; font-style: italic;")
-            self.partner_rows_layout.addWidget(lbl_none)
-
-        # Credits & Email info
         email_str = ag.account_email or "Google Account"
         credits_str = f"{ag.ai_credits_balance} Crediti" if ag.ai_credits_balance is not None else "Disponibili"
         self.lbl_credits_info.setText(f"💳 AI Credits: {credits_str}  •  Account: {email_str}")
+
+        if tab == "partner":
+            self.antigravity_gauge.color_theme = "emerald"
+            pct = ag.partner_5h.utilization_pct
+            self.antigravity_gauge.set_percentage(pct)
+            self.lbl_agy_reset_timer.setText(ag.partner_5h.friendly_reset_str)
+
+            self.lbl_agy_row_5h.setText(
+                f"⏱️ Sessione Partner 5h: {int(round(ag.partner_5h.utilization_pct))}%  (Reset in {ag.partner_5h.time_remaining_str})"
+            )
+            self.lbl_agy_row_7d.setText(
+                f"📅 Settimanale Partner: {int(round(ag.partner_7d.utilization_pct))}%  (Reset in {ag.partner_7d.time_remaining_str})"
+            )
+
+            p_models = ag.partner_models or []
+            m1 = next((m for m in p_models if "sonnet" in m.model_id.lower()), p_models[0] if len(p_models) > 0 else None)
+            m2 = next((m for m in p_models if "opus" in m.model_id.lower()), p_models[1] if len(p_models) > 1 else None)
+            m3 = next((m for m in p_models if "gpt" in m.model_id.lower()), p_models[2] if len(p_models) > 2 else None)
+
+            self._set_metric_card(
+                self.card_agy_c1,
+                m1.display_name if m1 else "Claude Sonnet",
+                f"{int(round(m1.five_hour.utilization_pct))}%" if m1 else "0%",
+                "quota 5h",
+            )
+            self._set_metric_card(
+                self.card_agy_c2,
+                m2.display_name if m2 else "Claude Opus",
+                f"{int(round(m2.five_hour.utilization_pct))}%" if m2 else "0%",
+                "quota 5h",
+            )
+            self._set_metric_card(
+                self.card_agy_c3,
+                m3.display_name if m3 else "GPT-OSS",
+                f"{int(round(m3.five_hour.utilization_pct))}%" if m3 else "0%",
+                "quota 5h",
+            )
+        else:
+            self.antigravity_gauge.color_theme = "blue"
+            pct = ag.gemini_5h.utilization_pct
+            self.antigravity_gauge.set_percentage(pct)
+            self.lbl_agy_reset_timer.setText(ag.gemini_5h.friendly_reset_str)
+
+            self.lbl_agy_row_5h.setText(
+                f"⏱️ Sessione Gemini 5h: {int(round(ag.gemini_5h.utilization_pct))}%  (Reset in {ag.gemini_5h.time_remaining_str})"
+            )
+            self.lbl_agy_row_7d.setText(
+                f"📅 Settimanale Gemini: {int(round(ag.gemini_7d.utilization_pct))}%  (Reset in {ag.gemini_7d.time_remaining_str})"
+            )
+
+            self._set_metric_card(self.card_agy_c1, "Gemini Flash", f"{int(round(ag.gemini_5h.utilization_pct))}%", "modello Google")
+            self._set_metric_card(self.card_agy_c2, "Gemini Pro", f"{int(round(ag.gemini_5h.utilization_pct))}%", "modello Google")
+            self._set_metric_card(self.card_agy_c3, "AI Credits", "Inclusi", "Google One AI")
+
+    def _set_metric_card(self, card: QFrame, title: str, val: str, sub: str) -> None:
+        lbl_title = card.findChild(QLabel, "title")
+        lbl_val = card.findChild(QLabel, "val")
+        lbl_sub = card.findChild(QLabel, "sub")
+        if lbl_title:
+            lbl_title.setText(title)
+        if lbl_val:
+            lbl_val.setText(val)
+        if lbl_sub:
+            lbl_sub.setText(sub)
 
     def _create_metric_card(self, title: str, val: str, sub: str) -> QFrame:
         card = QFrame()
@@ -1276,6 +1345,7 @@ class MicroFlyoutWindow(QWidget):
         card_layout.setSpacing(1)
 
         lbl_t = QLabel(title, card)
+        lbl_t.setObjectName("title")
         lbl_t.setStyleSheet("font-size: 10px; color: #A1A1AA; font-weight: 500;")
         card_layout.addWidget(lbl_t)
 
