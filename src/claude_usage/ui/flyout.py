@@ -110,7 +110,7 @@ class MicroFlyoutWindow(QWidget):
         )
         self.config = config
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.setFixedSize(392, 560)
+        self.setFixedSize(408, 608)
 
         app_icon_path = IconRenderer.get_app_icon_path()
         if app_icon_path.exists():
@@ -196,15 +196,15 @@ class MicroFlyoutWindow(QWidget):
         # 1. TOP HEADER BAR (Persistent across views)
         # =====================================================================
         header_layout = QHBoxLayout()
-        header_layout.setSpacing(8)
+        header_layout.setSpacing(6)
 
         self.status_pill = QLabel("🟢 Connesso via OAuth", self.card)
         self.status_pill.setStyleSheet(
             """
             background-color: #1E1E22;
             color: #A1A1AA;
-            padding: 5px 10px;
-            border-radius: 8px;
+            padding: 4px 8px;
+            border-radius: 7px;
             font-size: 11px;
             font-weight: 500;
             border: 1px solid #2E2E34;
@@ -460,10 +460,11 @@ class MicroFlyoutWindow(QWidget):
         card_auth = QFrame(self.settings_view)
         card_auth.setObjectName("SectionCard")
         layout_auth = QVBoxLayout(card_auth)
-        layout_auth.setContentsMargins(10, 8, 10, 8)
+        layout_auth.setContentsMargins(12, 9, 12, 9)
         layout_auth.setSpacing(6)
 
         lbl_auth_sec = QLabel("🔐 Account Claude Code", card_auth)
+        lbl_auth_sec.setMinimumHeight(18)
         lbl_auth_sec.setStyleSheet("font-size: 12px; font-weight: 700; color: #FFFFFF;")
         layout_auth.addWidget(lbl_auth_sec)
 
@@ -549,24 +550,27 @@ class MicroFlyoutWindow(QWidget):
         card_notif = QFrame(self.settings_view)
         card_notif.setObjectName("SectionCard")
         layout_notif = QVBoxLayout(card_notif)
-        layout_notif.setContentsMargins(10, 8, 10, 8)
-        layout_notif.setSpacing(6)
+        layout_notif.setContentsMargins(12, 9, 12, 9)
+        layout_notif.setSpacing(7)
 
-        lbl_notif_sec = QLabel("🔔 Notifiche & Soglie di Alert", card_notif)
+        # Row 1: Section Title on Left + Master Push Checkbox on Right
+        notif_header_row = QHBoxLayout()
+        notif_header_row.setContentsMargins(0, 0, 0, 0)
+        lbl_notif_sec = QLabel("🔔 Notifiche & Soglie Alert", card_notif)
+        lbl_notif_sec.setMinimumHeight(20)
         lbl_notif_sec.setStyleSheet("font-size: 12px; font-weight: 700; color: #FFFFFF;")
-        layout_notif.addWidget(lbl_notif_sec)
+        notif_header_row.addWidget(lbl_notif_sec)
+        notif_header_row.addStretch()
 
-        self.chk_notif = QCheckBox("Abilita Notifiche Push Native", card_notif)
+        self.chk_notif = QCheckBox("Notifiche Push", card_notif)
+        self.chk_notif.setMinimumHeight(20)
         self.chk_notif.setChecked(self.config.notifications_enabled)
         self.chk_notif.setCursor(Qt.CursorShape.PointingHandCursor)
-        layout_notif.addWidget(self.chk_notif)
+        self.chk_notif.setStyleSheet("color: #E4E4E7; font-size: 11px; font-weight: 500;")
+        notif_header_row.addWidget(self.chk_notif)
+        layout_notif.addLayout(notif_header_row)
 
-        lbl_thresh_title = QLabel("Soglie attive (% di quota) — clicca sui chip o digita:", card_notif)
-        lbl_thresh_title.setWordWrap(True)
-        lbl_thresh_title.setStyleSheet("color: #A1A1AA; font-size: 10px;")
-        layout_notif.addWidget(lbl_thresh_title)
-
-        # Quick-toggle chips row (6 compact pills on 1 row)
+        # Row 2: Quick-toggle chips row (6 compact pills on 1 row)
         grid_chips = QHBoxLayout()
         grid_chips.setContentsMargins(0, 0, 0, 0)
         grid_chips.setSpacing(5)
@@ -583,10 +587,19 @@ class MicroFlyoutWindow(QWidget):
 
         layout_notif.addLayout(grid_chips)
 
+        # Row 3: Inline label + Custom thresholds input
+        thresh_input_row = QHBoxLayout()
+        thresh_input_row.setContentsMargins(0, 0, 0, 0)
+        thresh_input_row.setSpacing(8)
+        lbl_thresh_inline = QLabel("Soglie attive (%):", card_notif)
+        lbl_thresh_inline.setMinimumHeight(26)
+        lbl_thresh_inline.setStyleSheet("color: #A1A1AA; font-size: 11px;")
+        thresh_input_row.addWidget(lbl_thresh_inline)
+
         self.txt_thresholds = QLineEdit(card_notif)
-        self.txt_thresholds.setFixedHeight(28)
+        self.txt_thresholds.setFixedHeight(26)
         self.txt_thresholds.setText(", ".join(str(t) for t in sorted(self.config.thresholds)))
-        self.txt_thresholds.setPlaceholderText("Valori separati da virgola, es. 50, 75, 80, 95, 100")
+        self.txt_thresholds.setPlaceholderText("Es. 50, 75, 80, 95, 100")
         self.txt_thresholds.setStyleSheet(
             """
             QLineEdit {
@@ -600,23 +613,21 @@ class MicroFlyoutWindow(QWidget):
             QLineEdit:focus { border-color: #3B82F6; }
         """
         )
-        layout_notif.addWidget(self.txt_thresholds)
+        thresh_input_row.addWidget(self.txt_thresholds, stretch=1)
+        layout_notif.addLayout(thresh_input_row)
         self.txt_thresholds.textChanged.connect(self._sync_threshold_chips)
         self._sync_threshold_chips()
 
-        # Note: Use '&&' to escape ampersand in Qt QCheckBox so it displays '&' properly
-        self.chk_burn_rate = QCheckBox("🔥 Avviso Consumo Rapido (Spike && Loop)", card_notif)
+        # Row 4: Burn-rate checkbox (self-explanatory, with && escaping)
+        self.chk_burn_rate = QCheckBox("🔥 Alert Consumo Rapido (+15% in <10m / Spike && Loop)", card_notif)
+        self.chk_burn_rate.setMinimumHeight(22)
         self.chk_burn_rate.setChecked(self.config.burn_rate_alert_enabled)
         self.chk_burn_rate.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.chk_burn_rate.setStyleSheet("color: #E4E4E7; font-size: 11px;")
         self.chk_burn_rate.setToolTip(
             "Invia un avviso se il consumo cresce oltre +15% in meno di 10 minuti o oltre 35k token in un singolo turno."
         )
         layout_notif.addWidget(self.chk_burn_rate)
-
-        lbl_burn_desc = QLabel("Avvisa se la quota sale oltre +15% in <10m o per picchi anomali di token.", card_notif)
-        lbl_burn_desc.setWordWrap(True)
-        lbl_burn_desc.setStyleSheet("color: #71717A; font-size: 10px;")
-        layout_notif.addWidget(lbl_burn_desc)
 
         vbox_settings.addWidget(card_notif)
 
@@ -624,30 +635,27 @@ class MicroFlyoutWindow(QWidget):
         card_style = QFrame(self.settings_view)
         card_style.setObjectName("SectionCard")
         layout_style = QVBoxLayout(card_style)
-        layout_style.setContentsMargins(10, 8, 10, 8)
-        layout_style.setSpacing(5)
+        layout_style.setContentsMargins(12, 9, 12, 9)
+        layout_style.setSpacing(6)
 
-        lbl_style_sec = QLabel("🎨 Stile Icona Taskbar (Doppia Quota)", card_style)
+        lbl_style_sec = QLabel("🎨 Stile Icona Taskbar (Doppia Quota 5h + 7g)", card_style)
+        lbl_style_sec.setMinimumHeight(18)
         lbl_style_sec.setStyleSheet("font-size: 12px; font-weight: 700; color: #FFFFFF;")
         layout_style.addWidget(lbl_style_sec)
 
-        lbl_style_desc = QLabel("Scegli come visualizzare le percentuali 5h e 7g nella barra:", card_style)
-        lbl_style_desc.setStyleSheet("color: #A1A1AA; font-size: 10px;")
-        layout_style.addWidget(lbl_style_desc)
-
         hbox_styles = QHBoxLayout()
-        hbox_styles.setContentsMargins(0, 2, 0, 0)
+        hbox_styles.setContentsMargins(0, 0, 0, 0)
         hbox_styles.setSpacing(6)
 
         self._current_tray_style = getattr(self.config, "tray_icon_style", "concentric")
 
         self.btn_style_concentric = QPushButton("⭕ Anelli Concentrici\n(Esterno 5h / Interno 7g)", card_style)
-        self.btn_style_concentric.setFixedHeight(38)
+        self.btn_style_concentric.setFixedHeight(36)
         self.btn_style_concentric.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_style_concentric.clicked.connect(lambda: self._select_tray_style("concentric"))
 
         self.btn_style_split = QPushButton("🌗 Archi Gemelli Split\n(Sinistra 5h / Destra 7g)", card_style)
-        self.btn_style_split.setFixedHeight(38)
+        self.btn_style_split.setFixedHeight(36)
         self.btn_style_split.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_style_split.clicked.connect(lambda: self._select_tray_style("split"))
 
@@ -658,19 +666,42 @@ class MicroFlyoutWindow(QWidget):
 
         vbox_settings.addWidget(card_style)
 
-        # --- CARD 4: AVANZATE & TOKEN MANUALE ---
+        # --- CARD 4: SISTEMA & CHIAVE API ---
         card_key = QFrame(self.settings_view)
         card_key.setObjectName("SectionCard")
         layout_key = QVBoxLayout(card_key)
-        layout_key.setContentsMargins(10, 8, 10, 8)
-        layout_key.setSpacing(5)
+        layout_key.setContentsMargins(12, 9, 12, 9)
+        layout_key.setSpacing(7)
 
-        lbl_key_sec = QLabel("🛠️ Avanzate & Chiave API (Opzionale)", card_key)
+        lbl_key_sec = QLabel("🛠️ Sistema & Chiave API (Opzionale)", card_key)
+        lbl_key_sec.setMinimumHeight(18)
         lbl_key_sec.setStyleSheet("font-size: 12px; font-weight: 700; color: #FFFFFF;")
         layout_key.addWidget(lbl_key_sec)
 
+        # Two system toggles side-by-side on a single balanced row
+        sys_toggles_row = QHBoxLayout()
+        sys_toggles_row.setContentsMargins(0, 0, 0, 0)
+        sys_toggles_row.setSpacing(10)
+
+        self.chk_autostart = QCheckBox("🚀 Avvia con Windows", card_key)
+        self.chk_autostart.setMinimumHeight(22)
+        self.chk_autostart.setChecked(is_autostart_enabled())
+        self.chk_autostart.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.chk_autostart.setStyleSheet("color: #E4E4E7; font-size: 11px;")
+        sys_toggles_row.addWidget(self.chk_autostart)
+
+        self.chk_mock = QCheckBox("🧪 Simulazione Demo (Mock)", card_key)
+        self.chk_mock.setMinimumHeight(22)
+        self.chk_mock.setChecked(self.config.mock_mode)
+        self.chk_mock.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.chk_mock.setStyleSheet("color: #A1A1AA; font-size: 11px;")
+        sys_toggles_row.addWidget(self.chk_mock)
+        sys_toggles_row.addStretch()
+
+        layout_key.addLayout(sys_toggles_row)
+
         self.txt_admin_key = QLineEdit(card_key)
-        self.txt_admin_key.setFixedHeight(28)
+        self.txt_admin_key.setFixedHeight(26)
         self.txt_admin_key.setPlaceholderText("Admin Key (sk-ant-admin-...) o Token OAuth manuale")
         self.txt_admin_key.setEchoMode(QLineEdit.EchoMode.Password)
         if self.config.admin_api_key:
@@ -690,24 +721,12 @@ class MicroFlyoutWindow(QWidget):
         )
         layout_key.addWidget(self.txt_admin_key)
 
-        self.chk_mock = QCheckBox("Modalità Simulazione Demo (Mock Mode)", card_key)
-        self.chk_mock.setChecked(self.config.mock_mode)
-        self.chk_mock.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.chk_mock.setStyleSheet("color: #A1A1AA; font-size: 11px;")
-        layout_key.addWidget(self.chk_mock)
-
-        self.chk_autostart = QCheckBox("🚀 Avvia all'accesso di Windows (Autostart)", card_key)
-        self.chk_autostart.setChecked(is_autostart_enabled())
-        self.chk_autostart.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.chk_autostart.setStyleSheet("color: #E4E4E7; font-size: 11px;")
-        layout_key.addWidget(self.chk_autostart)
-
         vbox_settings.addWidget(card_key)
         vbox_settings.addStretch()
 
         # Pinned Save Button at the bottom of Settings Page
         self.btn_save_settings = QPushButton("💾 Salva Impostazioni", self.settings_view)
-        self.btn_save_settings.setFixedHeight(32)
+        self.btn_save_settings.setFixedHeight(34)
         self.btn_save_settings.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_save_settings.setStyleSheet(
             """
@@ -970,8 +989,8 @@ class MicroFlyoutWindow(QWidget):
                 """
                 background-color: #1E1E22;
                 color: #A1A1AA;
-                padding: 5px 10px;
-                border-radius: 8px;
+                padding: 4px 8px;
+                border-radius: 7px;
                 font-size: 11px;
                 font-weight: 500;
                 border: 1px solid #2E2E34;
