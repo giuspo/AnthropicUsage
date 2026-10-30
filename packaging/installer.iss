@@ -1,9 +1,9 @@
-; Inno Setup 6 Script for Claude Code Usage Widget
+; Inno Setup 6 Script for Claude & Antigravity Usage Widget
 ; Produces a modern, lightweight, non-admin Windows Installer
 
-#define MyAppName "Claude Code Usage Widget"
+#define MyAppName "Claude & Antigravity Usage Widget"
 #ifndef MyAppVersion
-#define MyAppVersion "1.0.8"
+#define MyAppVersion "2.0.0"
 #endif
 #define MyAppPublisher "giuspo"
 #define MyAppExeName "ClaudeUsageWidget.exe"

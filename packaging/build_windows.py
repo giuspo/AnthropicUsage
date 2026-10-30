@@ -42,6 +42,7 @@ def build_executable():
         f"--icon={ico_path}",
         f"--add-data={RESOURCES_DIR / 'app_icon.png'};claude_usage/resources",
         f"--add-data={RESOURCES_DIR / 'app_icon.ico'};claude_usage/resources",
+        f"--add-data={RESOURCES_DIR / 'check.svg'};claude_usage/resources",
         "--hidden-import=keyring.backends.Windows",
         "--hidden-import=desktop_notifier.backends.winrt",
         "--hidden-import=qasync",

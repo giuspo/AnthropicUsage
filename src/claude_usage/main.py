@@ -52,7 +52,7 @@ def main() -> None:
     cleanup_duplicate_autostart()
 
     app = QApplication(sys.argv)
-    app.setApplicationName("Claude Code Usage")
+    app.setApplicationName("Claude & Antigravity Usage")
     app.setQuitOnLastWindowClosed(False)  # Keep running in system tray
 
     # Enforce Single-Instance application (prevents duplicate tray icons)

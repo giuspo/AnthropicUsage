@@ -1,4 +1,4 @@
-"""Dynamic System Tray Icon Renderer with Configurable Activity Rings."""
+"""Dynamic System Tray Icon Renderer with Configurable Activity Rings for Claude & Antigravity."""
 
 from __future__ import annotations
 
@@ -11,16 +11,24 @@ from typing import Optional
 from PIL import Image, ImageDraw
 from PyQt6.QtGui import QIcon, QImage, QPixmap
 
-from claude_usage.ui.theme import get_channel_color, get_status_color
+from claude_usage.ui.theme import (
+    COLOR_CLAUDE_ICON,
+    COLOR_CRITICAL,
+    COLOR_GEMINI_ICON,
+    COLOR_PARTNER_ICON,
+    COLOR_WARNING,
+    get_channel_color,
+    get_status_color,
+)
 
 
 class IconRenderer:
-    """Renders crisp progress indicators with the Claude spark logo at runtime.
+    """Renders crisp progress indicators with provider-specific logos (Claude, Gemini, Partner).
 
     Supports three customizable tray icon styles:
-    - "concentric": Dual Concentric Rings 2.0 (Outer Cyan 5h, Inner Violet 7d)
-    - "split": Split Bottom-Up Twin Gauges 2.0 (Left Cyan 5h, Right Violet 7d)
-    - "bars": Dual Vertical Pill Columns (Left Cyan 5h, Right Violet 7d)
+    - "concentric": Dual Concentric Rings 2.0 (Outer 5h, Inner 7d)
+    - "split": Split Bottom-Up Twin Gauges 2.0 (Left 5h, Right 7d)
+    - "bars": Dual Vertical Pill Columns (Left 5h, Right 7d)
     """
 
     CANVAS_SIZE = 256  # 4x Supersampling base
@@ -33,6 +41,7 @@ class IconRenderer:
         seven_day_pct: Optional[float] = None,
         is_offline: bool = False,
         style: str = "concentric",
+        provider_type: str = "claude",
         size: int = TARGET_SIZE,
     ) -> QIcon:
         """Generates a QIcon representing current quota utilization with dual indicators."""
@@ -41,6 +50,7 @@ class IconRenderer:
             seven_day_pct=seven_day_pct,
             is_offline=is_offline,
             style=style,
+            provider_type=provider_type,
             target_size=size,
         )
         byte_arr = io.BytesIO()
@@ -56,6 +66,7 @@ class IconRenderer:
         seven_day_pct: Optional[float] = None,
         is_offline: bool = False,
         style: str = "concentric",
+        provider_type: str = "claude",
         target_size: int = TARGET_SIZE,
     ) -> Image.Image:
         """Draws the 256x256 vector supersampled icon and downsamples to target_size."""
@@ -68,8 +79,8 @@ class IconRenderer:
         p_5h = max(0.0, min(100.0, float(five_hour_pct)))
         p_7d = max(0.0, min(100.0, float(seven_day_pct))) if seven_day_pct is not None else p_5h
 
-        rgb_5h = get_channel_color(p_5h, is_weekly=False, is_offline=is_offline)
-        rgb_7d = get_channel_color(p_7d, is_weekly=True, is_offline=is_offline)
+        rgb_5h = get_channel_color(p_5h, is_weekly=False, is_offline=is_offline, provider_type=provider_type)
+        rgb_7d = get_channel_color(p_7d, is_weekly=True, is_offline=is_offline, provider_type=provider_type)
 
         color_5h = (rgb_5h[0], rgb_5h[1], rgb_5h[2], 255)
         track_5h = (rgb_5h[0], rgb_5h[1], rgb_5h[2], 65)
@@ -77,18 +88,22 @@ class IconRenderer:
         color_7d = (rgb_7d[0], rgb_7d[1], rgb_7d[2], 255)
         track_7d = (rgb_7d[0], rgb_7d[1], rgb_7d[2], 65)
 
-        # Central Spark color
-        if max(p_5h, p_7d) >= 90.0:
-            spark_color = (239, 68, 68, 255)  # Critical Alert Red
-        elif max(p_5h, p_7d) >= 75.0:
-            spark_color = (251, 191, 36, 255)  # Warning Amber
+        # Determine central glyph color (escalating to Warning Amber or Critical Red)
+        max_p = max(p_5h, p_7d)
+        if max_p >= 90.0:
+            center_color = (COLOR_CRITICAL[0], COLOR_CRITICAL[1], COLOR_CRITICAL[2], 255)
+        elif max_p >= 75.0:
+            center_color = (COLOR_WARNING[0], COLOR_WARNING[1], COLOR_WARNING[2], 255)
         else:
-            spark_color = (218, 119, 86, 255)  # Iconic Claude Terracotta #DA7756
+            if provider_type in ("antigravity_gemini", "gemini"):
+                center_color = (COLOR_GEMINI_ICON[0], COLOR_GEMINI_ICON[1], COLOR_GEMINI_ICON[2], 255)
+            elif provider_type in ("antigravity_partner", "partner"):
+                center_color = (COLOR_PARTNER_ICON[0], COLOR_PARTNER_ICON[1], COLOR_PARTNER_ICON[2], 255)
+            else:
+                center_color = (COLOR_CLAUDE_ICON[0], COLOR_CLAUDE_ICON[1], COLOR_CLAUDE_ICON[2], 255)
 
         if style == "bars":
-            # -------------------------------------------------------------
-            # STYLE C: DUAL VERTICAL PILL COLUMNS (Sinistra 5h, Destra 7g)
-            # -------------------------------------------------------------
+            # STYLE C: DUAL VERTICAL PILL COLUMNS (Left 5h, Right 7d)
             cls._draw_vertical_pill_bar(
                 draw=draw,
                 x0=38,
@@ -110,15 +125,10 @@ class IconRenderer:
                 track_color=track_7d,
             )
         elif style == "split":
-            # -------------------------------------------------------------
-            # STYLE B: SPLIT BOTTOM-UP TWIN GAUGES (Sinistra 5h, Destra 7g)
-            # -------------------------------------------------------------
-            # Both arcs start at 6 o'clock (bottom) and climb upward to 12 o'clock
-            # with a clean 36-degree separation gap at bottom and top.
+            # STYLE B: SPLIT BOTTOM-UP TWIN GAUGES (Left 5h, Right 7d)
             r = 114.0
             w = 28.0
 
-            # Left Gauge (5h Cyan): bottom-left (108 deg) climbing clockwise to top-left (252 deg, 144 deg span)
             cls._draw_split_arc_bottom_up(
                 draw=draw,
                 cx=cx,
@@ -130,8 +140,6 @@ class IconRenderer:
                 track_color=track_5h,
                 is_left_side=True,
             )
-
-            # Right Gauge (7d Violet): bottom-right (72 deg) climbing counter-clockwise to top-right (288 deg, 144 deg span)
             cls._draw_split_arc_bottom_up(
                 draw=draw,
                 cx=cx,
@@ -144,13 +152,11 @@ class IconRenderer:
                 is_left_side=False,
             )
 
-            # Central Claude Spark (generous 48px)
-            cls._draw_claude_spark(draw, cx, cy, spark_radius=48.0, color=spark_color)
+            # Central Glyph
+            cls._draw_center_glyph(draw, cx, cy, radius=48.0, color=center_color, provider_type=provider_type)
+
         else:
-            # -------------------------------------------------------------
-            # STYLE A: DUAL CONCENTRIC RINGS 2.0 (Esterno 5h Ciano, Interno 7g Viola)
-            # -------------------------------------------------------------
-            # Outer Ring (5h): outer radius 116, width 24 -> spans [92..116]
+            # STYLE A: DUAL CONCENTRIC RINGS (Outer 5h, Inner 7d)
             r_outer = 116.0
             w_outer = 24.0
             cls._draw_arc_with_caps(
@@ -165,7 +171,6 @@ class IconRenderer:
                 track_color=track_5h,
             )
 
-            # Inner Ring (7d): outer radius 80, width 20 -> spans [60..80] (12px radial gap!)
             r_inner = 80.0
             w_inner = 20.0
             cls._draw_arc_with_caps(
@@ -180,10 +185,66 @@ class IconRenderer:
                 track_color=track_7d,
             )
 
-            # Central Claude Spark (compact 36px)
-            cls._draw_claude_spark(draw, cx, cy, spark_radius=36.0, color=spark_color)
+            # Central Glyph
+            cls._draw_center_glyph(draw, cx, cy, radius=36.0, color=center_color, provider_type=provider_type)
 
         return img.resize((target_size, target_size), Image.Resampling.LANCZOS)
+
+    @classmethod
+    def _draw_center_glyph(
+        cls,
+        draw: ImageDraw.ImageDraw,
+        cx: float,
+        cy: float,
+        radius: float,
+        color: tuple,
+        provider_type: str,
+    ) -> None:
+        if provider_type in ("antigravity_gemini", "gemini"):
+            cls._draw_gemini_sparkle(draw, cx, cy, radius=radius * 1.1, color=color)
+        elif provider_type in ("antigravity_partner", "partner"):
+            cls._draw_partner_star(draw, cx, cy, radius=radius * 1.05, color=color)
+        else:
+            cls._draw_claude_spark(draw, cx, cy, spark_radius=radius, color=color)
+
+    @classmethod
+    def _draw_gemini_sparkle(
+        cls,
+        draw: ImageDraw.ImageDraw,
+        cx: float,
+        cy: float,
+        radius: float,
+        color: tuple,
+    ) -> None:
+        """Draws Google Gemini 4-pointed concave astroid star."""
+        pts = []
+        for deg in range(360):
+            t = math.radians(deg)
+            x = cx + radius * (math.cos(t) ** 3)
+            y = cy + radius * (math.sin(t) ** 3)
+            pts.append((x, y))
+        draw.polygon(pts, fill=color)
+
+        # Bright center dot
+        core_r = max(2.5, radius * 0.12)
+        draw.ellipse((cx - core_r, cy - core_r, cx + core_r, cy + core_r), fill=color)
+
+    @classmethod
+    def _draw_partner_star(
+        cls,
+        draw: ImageDraw.ImageDraw,
+        cx: float,
+        cy: float,
+        radius: float,
+        color: tuple,
+    ) -> None:
+        """Draws Emerald 4-pointed diamond star for Antigravity Partner models."""
+        pts = []
+        for i in range(8):
+            ang = i * (math.pi / 4)
+            r_pt = radius if (i % 2 == 0) else (radius * 0.36)
+            pts.append((cx + r_pt * math.cos(ang), cy + r_pt * math.sin(ang)))
+        draw.polygon(pts, fill=color)
 
     @classmethod
     def _draw_arc_with_caps(
@@ -201,7 +262,6 @@ class IconRenderer:
         """Draws a 360-degree track and a progress arc with rounded end caps centered on r_mid."""
         bbox = (cx - radius, cy - radius, cx + radius, cy + radius)
         cap_r = width / 2.0
-        # PIL draw.arc draws stroke inward from `radius` to `radius - width`, so centerline is `r_mid`
         r_mid = radius - cap_r
 
         # Draw full background track
@@ -244,7 +304,6 @@ class IconRenderer:
         span = 144.0
 
         if is_left_side:
-            # Left gauge (5h): starts at bottom-left (108 deg) and climbs clockwise to top-left (252 deg)
             t_start, t_end = 108.0, 252.0
             draw.arc(bbox, start=t_start, end=t_end, fill=track_color, width=int(width))
             for deg in (t_start, t_end):
@@ -275,8 +334,6 @@ class IconRenderer:
                         fill=color,
                     )
         else:
-            # Right gauge (7d): starts at bottom-right (72 deg) and climbs counter-clockwise to top-right (-72 / 288 deg)
-            # In PIL clockwise angles: from -72.0 to 72.0
             draw.arc(bbox, start=-72.0, end=72.0, fill=track_color, width=int(width))
             for deg in (-72.0, 72.0):
                 rad = math.radians(deg)
@@ -324,7 +381,6 @@ class IconRenderer:
         pill_r = bar_w // 2
         outline_color = (color[0], color[1], color[2], 110)
 
-        # Background pill track
         draw.rounded_rectangle(
             (x0, y0, x1, y1),
             radius=pill_r,
@@ -333,7 +389,6 @@ class IconRenderer:
             width=4,
         )
 
-        # Active bottom-up fill
         if pct > 0.5:
             fill_h = max(int(bar_w * 0.65), int((pct / 100.0) * bar_h))
             draw.rounded_rectangle(
@@ -409,7 +464,6 @@ class IconRenderer:
         # 2. Dual Concentric Progress Rings
         cx, cy = canvas_dim / 2.0, canvas_dim / 2.0
 
-        # Outer Ring: 5h Session ring (Cyan #38BDF8, e.g. 68%)
         color_outer = (56, 189, 248, 255)
         track_outer = (56, 189, 248, 55)
         cls._draw_arc_with_caps(
@@ -424,7 +478,6 @@ class IconRenderer:
             track_color=track_outer,
         )
 
-        # Inner Ring: 7d Weekly ring (Violet #C084FC, e.g. 48%)
         color_inner = (192, 132, 252, 255)
         track_inner = (192, 132, 252, 55)
         cls._draw_arc_with_caps(
@@ -443,11 +496,9 @@ class IconRenderer:
         terracotta = (218, 119, 86, 255)
         cls._draw_claude_spark(draw, cx, cy, spark_radius=72.0, color=terracotta)
 
-        # Save resized PNG
         final_img = img.resize((size, size), Image.Resampling.LANCZOS)
         final_img.save(target_path, format="PNG")
 
-        # Save multi-size ICO
         ico_path = target_path.with_suffix(".ico")
         icon_sizes = [(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)]
         ico_images = [img.resize(s, Image.Resampling.LANCZOS) for s in icon_sizes]
