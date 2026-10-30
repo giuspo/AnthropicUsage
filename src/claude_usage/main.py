@@ -11,8 +11,10 @@ from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import QApplication
 import qasync
 
+from claude_usage.autostart import cleanup_duplicate_autostart
 from claude_usage.config import load_config
 from claude_usage.core.engine import UsageFusionEngine
+from claude_usage.core.single_instance import SingleInstanceManager
 from claude_usage.ui.flyout import MicroFlyoutWindow
 from claude_usage.ui.icon_renderer import IconRenderer
 from claude_usage.ui.tray import TrayController
@@ -46,9 +48,18 @@ def apply_os_quirks() -> None:
 def main() -> None:
     apply_os_quirks()
 
+    # Clean up redundant startup shortcuts from legacy installer versions
+    cleanup_duplicate_autostart()
+
     app = QApplication(sys.argv)
     app.setApplicationName("Claude Code Usage")
     app.setQuitOnLastWindowClosed(False)  # Keep running in system tray
+
+    # Enforce Single-Instance application (prevents duplicate tray icons)
+    single_instance = SingleInstanceManager()
+    if not single_instance.acquire():
+        logger.info("Claude Usage Widget is already running. Existing instance focused; exiting this process.")
+        sys.exit(0)
 
     # Set official app icon
     app_icon_path = IconRenderer.get_app_icon_path()
@@ -63,6 +74,9 @@ def main() -> None:
     engine = UsageFusionEngine(config)
     flyout = MicroFlyoutWindow(config)
     tray = TrayController(flyout)
+
+    # Bring existing window to front if a secondary instance attempts to launch
+    single_instance.instance_activated.connect(tray.show_flyout)
 
     # Signal wiring
     engine.snapshot_updated.connect(flyout.update_snapshot)
@@ -80,6 +94,7 @@ def main() -> None:
     tray.refresh_requested.connect(trigger_refresh)
 
     def on_quit() -> None:
+        single_instance.release()
         asyncio.create_task(engine.stop())
         app.quit()
 
@@ -94,9 +109,11 @@ def main() -> None:
 
     with loop:
         loop.create_task(run_async())
-        loop.run_forever()
+        try:
+            loop.run_forever()
+        finally:
+            single_instance.release()
 
 
 if __name__ == "__main__":
     main()
-

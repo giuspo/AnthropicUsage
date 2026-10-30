@@ -23,6 +23,7 @@ from PyQt6.QtWidgets import (
 )
 
 from claude_usage import __version__
+from claude_usage.autostart import is_autostart_enabled, set_autostart
 from claude_usage.config import AppConfig, save_config
 from claude_usage.core.login_helper import ClaudeLoginHelper
 from claude_usage.core.models import UsageSnapshot
@@ -657,6 +658,12 @@ class MicroFlyoutWindow(QWidget):
         self.chk_mock.setStyleSheet("color: #A1A1AA; font-size: 11px;")
         layout_key.addWidget(self.chk_mock)
 
+        self.chk_autostart = QCheckBox("🚀 Avvia all'accesso di Windows (Autostart)", card_key)
+        self.chk_autostart.setChecked(is_autostart_enabled())
+        self.chk_autostart.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.chk_autostart.setStyleSheet("color: #E4E4E7; font-size: 11px;")
+        layout_key.addWidget(self.chk_autostart)
+
         vbox_settings.addWidget(card_key)
         vbox_settings.addStretch()
 
@@ -1111,6 +1118,13 @@ class MicroFlyoutWindow(QWidget):
         self.config.notifications_enabled = self.chk_notif.isChecked()
         self.config.burn_rate_alert_enabled = self.chk_burn_rate.isChecked()
         self.config.mock_mode = self.chk_mock.isChecked()
+        
+        # Update autostart if toggled
+        new_autostart = self.chk_autostart.isChecked()
+        if new_autostart != is_autostart_enabled():
+            set_autostart(new_autostart)
+        self.config.autostart_enabled = new_autostart
+
         parsed_thresh = self._parse_current_thresholds()
         self.config.thresholds = parsed_thresh if parsed_thresh else [80, 95, 100]
         admin_key = self.txt_admin_key.text().strip()

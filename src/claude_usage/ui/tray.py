@@ -105,6 +105,14 @@ class TrayController(QSystemTrayIcon):
     def _toggle_flyout(self) -> None:
         self.flyout.toggle_at_tray(self.geometry())
 
+    def show_flyout(self) -> None:
+        """Brings the flyout to front and activates it."""
+        if not self.flyout.isVisible():
+            self.flyout.toggle_at_tray(self.geometry())
+        else:
+            self.flyout.raise_()
+            self.flyout.activateWindow()
+
     def _open_settings(self) -> None:
         if not self.flyout.isVisible():
             self.flyout.toggle_at_tray(self.geometry())
