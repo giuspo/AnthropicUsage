@@ -24,6 +24,8 @@ LicenseFile=..\LICENSE
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
+CloseApplications=no
+RestartApplications=no
 
 [Languages]
 Name: "italian"; MessagesFile: "compiler:Languages\Italian.isl"
@@ -58,4 +60,26 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
+
+[Code]
+// Helper to automatically terminate running instances of ClaudeUsageWidget before install or uninstall
+procedure StopRunningInstances();
+var
+  ResultCode: Integer;
+begin
+  Exec('taskkill.exe', '/F /IM {#MyAppExeName} /T', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Sleep(300);
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  StopRunningInstances();
+  Result := '';
+end;
+
+function InitializeUninstall(): Boolean;
+begin
+  StopRunningInstances();
+  Result := True;
+end;
 
