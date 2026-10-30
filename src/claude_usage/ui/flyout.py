@@ -631,36 +631,45 @@ class MicroFlyoutWindow(QWidget):
 
         vbox_settings.addWidget(card_notif)
 
-        # --- CARD 3: STILE ICONA TASKBAR (DOPPIA QUOTA) ---
+        # --- CARD 3: STILE ICONA TASKBAR (DOPPIA QUOTA BICOLORE) ---
         card_style = QFrame(self.settings_view)
         card_style.setObjectName("SectionCard")
         layout_style = QVBoxLayout(card_style)
         layout_style.setContentsMargins(12, 9, 12, 9)
         layout_style.setSpacing(6)
 
-        lbl_style_sec = QLabel("🎨 Stile Icona Taskbar (Doppia Quota 5h + 7g)", card_style)
+        lbl_style_sec = QLabel("🎨 Icona Taskbar (🔵 Ciano 5h  •  🟣 Viola 7g)", card_style)
         lbl_style_sec.setMinimumHeight(18)
         lbl_style_sec.setStyleSheet("font-size: 12px; font-weight: 700; color: #FFFFFF;")
         layout_style.addWidget(lbl_style_sec)
 
         hbox_styles = QHBoxLayout()
         hbox_styles.setContentsMargins(0, 0, 0, 0)
-        hbox_styles.setSpacing(6)
+        hbox_styles.setSpacing(5)
 
         self._current_tray_style = getattr(self.config, "tray_icon_style", "concentric")
 
-        self.btn_style_concentric = QPushButton("⭕ Anelli Concentrici\n(Esterno 5h / Interno 7g)", card_style)
+        self.btn_style_concentric = QPushButton("⭕ Anelli\n(Est. 5h / Int. 7g)", card_style)
         self.btn_style_concentric.setFixedHeight(36)
         self.btn_style_concentric.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_style_concentric.setToolTip("Anello esterno Ciano = 5h • Anello interno Viola = 7g")
         self.btn_style_concentric.clicked.connect(lambda: self._select_tray_style("concentric"))
 
-        self.btn_style_split = QPushButton("🌗 Archi Gemelli Split\n(Sinistra 5h / Destra 7g)", card_style)
+        self.btn_style_split = QPushButton("🌗 Archi Split\n(Sx 5h / Dx 7g)", card_style)
         self.btn_style_split.setFixedHeight(36)
         self.btn_style_split.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_style_split.setToolTip("Archi dal basso verso l'alto: Sinistra Ciano = 5h • Destra Viola = 7g")
         self.btn_style_split.clicked.connect(lambda: self._select_tray_style("split"))
+
+        self.btn_style_bars = QPushButton("📊 Doppie Barre\n(Colonne 5h / 7g)", card_style)
+        self.btn_style_bars.setFixedHeight(36)
+        self.btn_style_bars.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_style_bars.setToolTip("Due colonne verticali parallele: Sinistra Ciano = 5h • Destra Viola = 7g")
+        self.btn_style_bars.clicked.connect(lambda: self._select_tray_style("bars"))
 
         hbox_styles.addWidget(self.btn_style_concentric, stretch=1)
         hbox_styles.addWidget(self.btn_style_split, stretch=1)
+        hbox_styles.addWidget(self.btn_style_bars, stretch=1)
         layout_style.addLayout(hbox_styles)
         self._update_tray_style_buttons()
 
@@ -838,8 +847,8 @@ class MicroFlyoutWindow(QWidget):
 
         steps = [
             (
-                "1. Anello nella Tray",
-                "Verde (<75%), Giallo (75-90%), Rosso (>90%). Passa il mouse sopra per l'orario di reset.",
+                "1. Icona Bicolore Tray",
+                "🔵 Ciano = 5h, 🟣 Viola = 7g (Giallo ≥75%, Rosso ≥90%). Scegli Anelli, Archi o Barre.",
             ),
             (
                 "2. Metriche 5h & 7g",
@@ -1008,16 +1017,16 @@ class MicroFlyoutWindow(QWidget):
 
         self.lbl_workspace.setText(snap.workspace_name)
 
-        # Update Dual Row labels with friendly Italian timestamps
+        # Update Dual Row labels with friendly Italian timestamps and matching Cyan/Violet channel hues
         pct_5h = int(snap.five_hour.utilization_pct)
-        color_5h = "#EF4444" if pct_5h >= 90 else ("#F59E0B" if pct_5h >= 75 else "#D4D4D8")
-        self.lbl_row_5h.setText(f"⏱️ Sessione 5h: {pct_5h}%  ({snap.five_hour.friendly_reset_str})")
-        self.lbl_row_5h.setStyleSheet(f"color: {color_5h}; font-size: 11px; font-weight: {'600' if pct_5h >= 90 else '400'};")
+        color_5h = "#EF4444" if pct_5h >= 90 else ("#FBBF24" if pct_5h >= 75 else "#38BDF8")
+        self.lbl_row_5h.setText(f"🔵 Sessione 5h: {pct_5h}%  ({snap.five_hour.friendly_reset_str})")
+        self.lbl_row_5h.setStyleSheet(f"color: {color_5h}; font-size: 11px; font-weight: {'600' if pct_5h >= 75 else '500'};")
 
         pct_7d = int(snap.seven_day.utilization_pct)
-        color_7d = "#EF4444" if pct_7d >= 90 else ("#F59E0B" if pct_7d >= 75 else "#D4D4D8")
-        self.lbl_row_7d.setText(f"📅 Settimanale: {pct_7d}%  ({snap.seven_day.friendly_reset_str})")
-        self.lbl_row_7d.setStyleSheet(f"color: {color_7d}; font-size: 11px; font-weight: {'600' if pct_7d >= 90 else '400'};")
+        color_7d = "#EF4444" if pct_7d >= 90 else ("#FBBF24" if pct_7d >= 75 else "#C084FC")
+        self.lbl_row_7d.setText(f"🟣 Settimanale 7g: {pct_7d}%  ({snap.seven_day.friendly_reset_str})")
+        self.lbl_row_7d.setStyleSheet(f"color: {color_7d}; font-size: 11px; font-weight: {'600' if pct_7d >= 75 else '500'};")
 
         # Determine which window to display on main gauge
         if self.active_tab == "7d" or (self.active_tab == "bottleneck" and snap.is_weekly_bottleneck):
@@ -1174,6 +1183,10 @@ class MicroFlyoutWindow(QWidget):
     def _select_tray_style(self, style_name: str) -> None:
         self._current_tray_style = style_name
         self._update_tray_style_buttons()
+        # Live preview on the taskbar as soon as the user clicks a style button
+        self.config.tray_icon_style = style_name
+        save_config(self.config)
+        self.refresh_requested.emit()
 
     def _update_tray_style_buttons(self) -> None:
         active_css = """
@@ -1183,9 +1196,9 @@ class MicroFlyoutWindow(QWidget):
                 border: 1px solid #3B82F6;
                 border-radius: 6px;
                 font-size: 10px;
-                font-weight: 600;
+                font-weight: 700;
                 text-align: center;
-                padding: 2px 4px;
+                padding: 2px 3px;
             }
         """
         inactive_css = """
@@ -1197,19 +1210,21 @@ class MicroFlyoutWindow(QWidget):
                 font-size: 10px;
                 font-weight: 500;
                 text-align: center;
-                padding: 2px 4px;
+                padding: 2px 3px;
             }
             QPushButton:hover {
                 background-color: #27272A;
                 color: #FAFAFA;
             }
         """
-        if getattr(self, "_current_tray_style", "concentric") == "split":
-            self.btn_style_split.setStyleSheet(active_css)
-            self.btn_style_concentric.setStyleSheet(inactive_css)
-        else:
-            self.btn_style_concentric.setStyleSheet(active_css)
-            self.btn_style_split.setStyleSheet(inactive_css)
+        cur = getattr(self, "_current_tray_style", "concentric")
+        style_map = {
+            "concentric": self.btn_style_concentric,
+            "split": self.btn_style_split,
+            "bars": self.btn_style_bars,
+        }
+        for key, btn in style_map.items():
+            btn.setStyleSheet(active_css if key == cur else inactive_css)
 
     def _save_settings_action(self) -> None:
         self.config.notifications_enabled = self.chk_notif.isChecked()
