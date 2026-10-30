@@ -125,16 +125,19 @@ class TrayController(QSystemTrayIcon):
 
     def update_snapshot(self, snap: UsageSnapshot) -> None:
         """Updates the tray icon and formatted tooltip."""
-        # 1. Update dynamic icon
-        icon = IconRenderer.render_tray_icon(snap.primary_utilization, is_offline=snap.is_offline)
+        # 1. Update dynamic icon with Dual Concentric Activity Rings (5h outer, 7d inner)
+        icon = IconRenderer.render_tray_icon(
+            five_hour_pct=snap.five_hour.utilization_pct,
+            seven_day_pct=snap.seven_day.utilization_pct,
+            is_offline=snap.is_offline,
+        )
         self.setIcon(icon)
 
         # 2. Update formatted tooltip (<128 char limit)
-        tip = format_tray_tooltip(
-            workspace_name=snap.workspace_name,
-            utilization_pct=snap.primary_utilization,
-            time_remaining=snap.primary_reset_str,
-            window_label="Settimanale" if snap.is_weekly_bottleneck else "5h",
-        )
+        p5 = int(round(snap.five_hour.utilization_pct))
+        p7 = int(round(snap.seven_day.utilization_pct))
+        tip = f"[{snap.workspace_name}] 5h: {p5}% ({snap.five_hour.time_remaining_str}) | 7g: {p7}% ({snap.seven_day.time_remaining_str})"
+        if len(tip) > 125:
+            tip = f"Claude Code: 5h {p5}% | 7g {p7}%"
         self.setToolTip(tip)
 

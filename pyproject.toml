@@ -1,6 +1,6 @@
 [project]
 name = "claude-usage-widget"
-version = "1.0.4"
+version = "1.0.5"
 description = "Cross-platform System Tray Widget for Claude Code usage monitoring"
 readme = "README.md"
 authors = [
