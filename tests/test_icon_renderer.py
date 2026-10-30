@@ -23,14 +23,14 @@ def test_status_color_thresholds():
 
 
 def test_render_pil_image():
-    # Test rendering at 64x64
-    img = IconRenderer.render_pil_image(utilization_pct=45.0, target_size=64)
+    # Test rendering at 64x64 with dual rings
+    img = IconRenderer.render_pil_image(five_hour_pct=45.0, seven_day_pct=80.0, target_size=64)
     assert isinstance(img, Image.Image)
     assert img.size == (64, 64)
     assert img.mode == "RGBA"
 
     # Test rendering at 32x32
-    img_32 = IconRenderer.render_pil_image(utilization_pct=85.0, target_size=32)
+    img_32 = IconRenderer.render_pil_image(five_hour_pct=85.0, seven_day_pct=30.0, target_size=32)
     assert img_32.size == (32, 32)
 
 
