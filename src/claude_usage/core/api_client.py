@@ -19,7 +19,8 @@ ADMIN_USAGE_URL = "https://api.anthropic.com/v1/organizations/usage_report/messa
 class ApiClient:
     """Queries official and OAuth quota endpoints with rate-limit and backoff handling."""
 
-    def __init__(self, timeout_sec: float = 8.0):
+    def __init__(self, auth_manager: Optional[object] = None, timeout_sec: float = 8.0):
+        self.auth_manager = auth_manager
         self.timeout = timeout_sec
         self.last_status_code: Optional[int] = None
         self.retry_after_until: Optional[datetime] = None
@@ -52,7 +53,18 @@ class ApiClient:
 
         return UsageSnapshot(status_label="Provider sconosciuto", is_offline=True)
 
-    async def _fetch_oauth_usage(self, auth: AuthState) -> UsageSnapshot:
+    async def _get_oauth_usage(self, headers: dict) -> tuple[int, dict, Optional[str]]:
+        """Internal helper to execute GET request against Anthropic OAuth usage API."""
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            resp = await client.get(OAUTH_USAGE_URL, headers=headers)
+            try:
+                data = resp.json()
+            except Exception:
+                data = {}
+            retry_header = resp.headers.get("retry-after")
+            return resp.status_code, data, retry_header
+
+    async def _fetch_oauth_usage(self, auth: AuthState, retry_on_401: bool = True) -> UsageSnapshot:
         headers = {
             "Authorization": f"Bearer {auth.access_token}",
             "anthropic-beta": "oauth-2025-04-20",
@@ -61,55 +73,61 @@ class ApiClient:
         }
 
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                resp = await client.get(OAUTH_USAGE_URL, headers=headers)
-                self.last_status_code = resp.status_code
+            status_code, data, retry_header = await self._get_oauth_usage(headers)
+            self.last_status_code = status_code
 
-                if resp.status_code == 200:
-                    data = resp.json()
-                    five_h = UsageWindow.from_api(data.get("five_hour"))
-                    seven_d = UsageWindow.from_api(data.get("seven_day"))
-                    sonnet = (
-                        UsageWindow.from_api(data.get("seven_day_sonnet"))
-                        if data.get("seven_day_sonnet")
-                        else None
-                    )
-                    opus = (
-                        UsageWindow.from_api(data.get("seven_day_opus"))
-                        if data.get("seven_day_opus")
-                        else None
-                    )
+            if status_code == 200:
+                five_h = UsageWindow.from_api(data.get("five_hour"))
+                seven_d = UsageWindow.from_api(data.get("seven_day"))
+                sonnet = (
+                    UsageWindow.from_api(data.get("seven_day_sonnet"))
+                    if data.get("seven_day_sonnet")
+                    else None
+                )
+                opus = (
+                    UsageWindow.from_api(data.get("seven_day_opus"))
+                    if data.get("seven_day_opus")
+                    else None
+                )
 
-                    return UsageSnapshot(
-                        five_hour=five_h,
-                        seven_day=seven_d,
-                        seven_day_sonnet=sonnet,
-                        seven_day_opus=opus,
-                        workspace_name=auth.workspace_name,
-                        status_label=f"🟢 Connesso via OAuth ({auth.subscription_type.capitalize()})",
-                    )
-                elif resp.status_code == 429:
-                    retry_header = resp.headers.get("retry-after")
-                    delay = int(retry_header) if retry_header and retry_header.isdigit() else 120
-                    self.retry_after_until = datetime.now(timezone.utc) + timedelta(seconds=delay)
-                    logger.warning(f"HTTP 429 on OAuth usage API. Cooldown for {delay}s")
-                    return UsageSnapshot(
-                        is_rate_limited=True,
-                        status_label="🟡 Rate Limited (Cache Attiva)",
-                        workspace_name=auth.workspace_name,
-                    )
-                elif resp.status_code == 401:
-                    return UsageSnapshot(
-                        is_offline=True,
-                        status_label="🔴 Token Scaduto / Non Valido",
-                        workspace_name=auth.workspace_name,
-                    )
-                else:
-                    return UsageSnapshot(
-                        is_offline=True,
-                        status_label=f"Errore API ({resp.status_code})",
-                        workspace_name=auth.workspace_name,
-                    )
+                return UsageSnapshot(
+                    five_hour=five_h,
+                    seven_day=seven_d,
+                    seven_day_sonnet=sonnet,
+                    seven_day_opus=opus,
+                    workspace_name=auth.workspace_name,
+                    status_label=f"🟢 Connesso via OAuth ({auth.subscription_type.capitalize()})",
+                )
+            elif status_code == 429:
+                delay = int(retry_header) if retry_header and retry_header.isdigit() else 120
+                self.retry_after_until = datetime.now(timezone.utc) + timedelta(seconds=delay)
+                logger.warning(f"HTTP 429 on OAuth usage API. Cooldown for {delay}s")
+                return UsageSnapshot(
+                    is_rate_limited=True,
+                    status_label="🟡 Rate Limited (Cache Attiva)",
+                    workspace_name=auth.workspace_name,
+                )
+            elif status_code == 401:
+                logger.info("HTTP 401 on OAuth usage API (token expired).")
+                if retry_on_401 and self.auth_manager and hasattr(self.auth_manager, "refresh_token"):
+                    logger.info("Attempting automatic silent OAuth token refresh for Claude Code...")
+                    refreshed = await self.auth_manager.refresh_token(force=True)
+                    if refreshed:
+                        fresh_auth = self.auth_manager.get_credentials()
+                        logger.info("Auto-refresh succeeded! Retrying quota request with new token...")
+                        return await self._fetch_oauth_usage(fresh_auth, retry_on_401=False)
+
+                return UsageSnapshot(
+                    is_offline=True,
+                    status_label="🔴 Token Scaduto / Riconnetti",
+                    workspace_name=auth.workspace_name,
+                )
+            else:
+                return UsageSnapshot(
+                    is_offline=True,
+                    status_label=f"Errore API ({status_code})",
+                    workspace_name=auth.workspace_name,
+                )
         except Exception as e:
             logger.debug(f"HTTP request error: {e}")
             return UsageSnapshot(is_offline=True, status_label="Offline / Errore Rete")

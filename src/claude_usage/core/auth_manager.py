@@ -17,6 +17,8 @@ from claude_usage.core.models import AuthProviderType, AuthState
 logger = logging.getLogger(__name__)
 
 KEYCHAIN_CLAUDE_SERVICE = "Claude Code-credentials"
+CLAUDE_OAUTH_TOKEN_URL = "https://platform.claude.com/v1/oauth/token"
+CLAUDE_CODE_CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
 
 
 class AuthManager:
@@ -189,6 +191,122 @@ class AuthManager:
             logger.debug(f"JSON parsing error for credentials: {e}")
             return None
 
+    def _persist_credentials(self, state: AuthState) -> None:
+        """Writes refreshed credentials back to ~/.claude/.credentials.json and OS Keyring."""
+        payload_dict = {
+            "claudeAiOauth": {
+                "accessToken": state.access_token,
+                "refreshToken": state.refresh_token,
+                "expiresAt": state.expires_at,
+                "scopes": ["user:inference", "user:profile", "user:sessions:claude_code"],
+                "subscriptionType": state.subscription_type or "pro",
+                "rateLimitTier": state.rate_limit_tier or "default",
+            }
+        }
+        json_str = json.dumps(payload_dict, indent=2)
+
+        # 1. Update Keyring
+        try:
+            keyring.set_password(KEYCHAIN_CLAUDE_SERVICE, "claude-code", json_str)
+        except Exception as e:
+            logger.debug(f"Failed to persist refreshed token to keyring: {e}")
+
+        # 2. Update ~/.claude/.credentials.json
+        creds_paths = [
+            Path.home() / ".claude" / ".credentials.json",
+        ]
+        if sys.platform == "win32":
+            user_profile = os.environ.get("USERPROFILE")
+            if user_profile:
+                creds_paths.append(Path(user_profile) / ".claude" / ".credentials.json")
+
+        for p in creds_paths:
+            try:
+                if p.parent.exists():
+                    existing_data = {}
+                    if p.exists():
+                        try:
+                            with open(p, "r", encoding="utf-8") as f:
+                                existing_data = json.load(f)
+                        except Exception:
+                            pass
+                    existing_data.setdefault("claudeAiOauth", {})
+                    existing_data["claudeAiOauth"]["accessToken"] = state.access_token
+                    existing_data["claudeAiOauth"]["refreshToken"] = state.refresh_token
+                    existing_data["claudeAiOauth"]["expiresAt"] = state.expires_at
+
+                    with open(p, "w", encoding="utf-8") as f:
+                        json.dump(existing_data, f, indent=2)
+            except Exception as e:
+                logger.debug(f"Failed to persist refreshed token to {p}: {e}")
+
+    async def _post_refresh_request(
+        self, payload: dict, headers: dict
+    ) -> tuple[int, dict, str]:
+        """Internal helper to execute the token refresh POST request."""
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(CLAUDE_OAUTH_TOKEN_URL, json=payload, headers=headers)
+            try:
+                data = resp.json()
+            except Exception:
+                data = {}
+            return resp.status_code, data, resp.text
+
+    async def refresh_token(self, force: bool = False) -> bool:
+        """Executes OAuth token refresh with Anthropic, rotating credentials and persisting them."""
+        import time
+
+        state = self._current_state if self._current_state.refresh_token else self.get_credentials()
+        if not state.refresh_token:
+            logger.info("No refresh token available for Claude Code auto-refresh.")
+            return False
+
+        if not force:
+            # First try re-reading: the user's active CLI may have already refreshed it
+            fresh = self._resolve_credentials()
+            if fresh and fresh.is_valid and not fresh.is_expired():
+                self._current_state = fresh
+                logger.info("Credentials were fresh after re-reading storage.")
+                return True
+
+        headers = {
+            "Content-Type": "application/json",
+            "User-Agent": "claude-code/1.0",
+            "Accept": "application/json",
+        }
+        payload = {
+            "grant_type": "refresh_token",
+            "refresh_token": state.refresh_token,
+            "client_id": CLAUDE_CODE_CLIENT_ID,
+        }
+
+        try:
+            status_code, data, raw_text = await self._post_refresh_request(payload, headers)
+            if status_code == 200:
+                new_access = data.get("access_token")
+                new_refresh = data.get("refresh_token", state.refresh_token)
+                expires_in = int(data.get("expires_in", 3600))
+                new_expires_at = int(time.time() * 1000) + (expires_in * 1000)
+
+                state.access_token = new_access
+                state.refresh_token = new_refresh
+                state.expires_at = new_expires_at
+                state.is_valid = True
+                state.error_message = None
+                self._current_state = state
+
+                self._persist_credentials(state)
+                logger.info("Claude Code OAuth token successfully refreshed and persisted.")
+                return True
+            else:
+                logger.warning(
+                    f"OAuth token refresh rejected: HTTP {status_code} - {raw_text}"
+                )
+                return False
+        except Exception as e:
+            logger.warning(f"OAuth token refresh network error: {e}")
+            return False
+
     async def refresh_if_expired(self) -> AuthState:
         """Silently re-reads credentials from keyring or triggers OAuth refresh if needed."""
         state = self.get_credentials()
@@ -196,32 +314,10 @@ class AuthManager:
             return state
 
         if state.is_expired():
-            # First try re-reading: the user's active CLI may have already refreshed it
-            fresh = self._resolve_credentials()
-            if fresh and fresh.is_valid and not fresh.is_expired():
-                self._current_state = fresh
-                return fresh
-
-            # If still expired and we have a refresh token, perform refresh
-            if state.refresh_token:
-                try:
-                    async with httpx.AsyncClient(timeout=10.0) as client:
-                        resp = await client.post(
-                            "https://platform.claude.com/v1/oauth/token",
-                            json={
-                                "grant_type": "refresh_token",
-                                "refresh_token": state.refresh_token,
-                            },
-                        )
-                        if resp.status_code == 200:
-                            data = resp.json()
-                            state.access_token = data.get("access_token", state.access_token)
-                            state.refresh_token = data.get("refresh_token", state.refresh_token)
-                            expires_in = data.get("expires_in", 3600)
-                            state.expires_at = int((resp.headers.get("date") or 0)) + (expires_in * 1000)
-                            self._current_state = state
-                except Exception as e:
-                    logger.warning(f"OAuth token refresh attempt failed: {e}")
+            # Try refresh
+            refreshed = await self.refresh_token(force=False)
+            if refreshed:
+                return self._current_state
 
         return self._current_state
 

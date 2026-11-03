@@ -25,12 +25,15 @@ FALLBACK_BASE_URL = "https://daily-cloudcode-pa.googleapis.com"
 class AntigravityApiClient:
     """Queries official Google Antigravity quota endpoints and extracts Gemini + Partner model pools."""
 
-    def __init__(self, timeout_sec: float = 8.0):
+    def __init__(self, auth_manager: Optional[object] = None, timeout_sec: float = 8.0):
+        self.auth_manager = auth_manager
         self.timeout = timeout_sec
         self.last_status_code: Optional[int] = None
         self.retry_after_until: Optional[datetime] = None
 
-    async def fetch_usage(self, auth: AuthState, mock: bool = False) -> AntigravityUsageSnapshot:
+    async def fetch_usage(
+        self, auth: AuthState, mock: bool = False, retry_on_401: bool = True
+    ) -> AntigravityUsageSnapshot:
         """Fetches quota utilization snapshot for Google AI Pro."""
         if mock or auth.provider == AuthProviderType.MOCK:
             return self._generate_mock_snapshot()
@@ -68,6 +71,19 @@ class AntigravityApiClient:
                 models_data = await self._post_endpoint(
                     client, "v1internal:fetchAvailableModels", headers
                 )
+
+                # Check if token expired on Google Cloud Code
+                if (
+                    self.last_status_code in (401, 403)
+                    and retry_on_401
+                    and self.auth_manager
+                    and hasattr(self.auth_manager, "refresh_if_expired")
+                ):
+                    logger.info("Google Antigravity returned 401/403. Attempting auto-refresh...")
+                    fresh_auth = await self.auth_manager.refresh_if_expired()
+                    if fresh_auth and fresh_auth.is_valid and fresh_auth.access_token != auth.access_token:
+                        logger.info("Antigravity token auto-refreshed, retrying quota call...")
+                        return await self.fetch_usage(fresh_auth, mock=mock, retry_on_401=False)
 
                 return self._parse_responses(auth, quota_summary, models_data)
 

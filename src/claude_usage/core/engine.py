@@ -40,12 +40,12 @@ class UsageFusionEngine(QObject):
 
         # Claude Code providers
         self.auth_manager = AuthManager(admin_api_key=config.admin_api_key)
-        self.api_client = ApiClient()
+        self.api_client = ApiClient(auth_manager=self.auth_manager)
         self.jsonl_parser = JsonlParser()
 
         # Google Antigravity providers
         self.antigravity_auth = AntigravityAuthManager()
-        self.antigravity_client = AntigravityApiClient()
+        self.antigravity_client = AntigravityApiClient(auth_manager=self.antigravity_auth)
         self.antigravity_parser = AntigravityTranscriptParser()
 
         self.alert_engine = AlertEngine()

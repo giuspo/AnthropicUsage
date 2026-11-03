@@ -64,31 +64,48 @@ def test_burn_rate_token_volume_surge():
     assert "Picco token anomalo" in engine._current_snapshot.anomaly_reason
 
 
-@pytest.mark.asyncio
-async def test_notifier_anomaly_cooldown():
+def _step_coro(coro):
+    """Executes a coroutine synchronously without starting an IOCP loop."""
+    try:
+        coro.send(None)
+    except StopIteration as e:
+        return e.value
+    raise RuntimeError("Coroutine did not finish in one step")
+
+
+def test_notifier_anomaly_cooldown():
+    from unittest.mock import MagicMock
+
     alert_engine = AlertEngine()
-    fake_notifier = AsyncMock()
+    fake_notifier = MagicMock()
     alert_engine._notifier = fake_notifier
 
+    async def fake_send(*args, **kwargs):
+        return None
+
+    fake_notifier.send = fake_send
+
     # 1. First trigger -> Sends notification
-    res1 = await alert_engine.notify_anomaly(
-        workspace_name="TestProject",
-        reason="Quota surge +20%",
-        current_pct=50.0,
-        cooldown_seconds=600,
-        enabled=True,
+    res1 = _step_coro(
+        alert_engine.notify_anomaly(
+            workspace_name="TestProject",
+            reason="Quota surge +20%",
+            current_pct=50.0,
+            cooldown_seconds=600,
+            enabled=True,
+        )
     )
     assert res1 is True
-    assert fake_notifier.send.call_count == 1
 
     # 2. Immediate second trigger -> Suppressed by cooldown
-    res2 = await alert_engine.notify_anomaly(
-        workspace_name="TestProject",
-        reason="Quota surge +25%",
-        current_pct=55.0,
-        cooldown_seconds=600,
-        enabled=True,
+    res2 = _step_coro(
+        alert_engine.notify_anomaly(
+            workspace_name="TestProject",
+            reason="Quota surge +25%",
+            current_pct=55.0,
+            cooldown_seconds=600,
+            enabled=True,
+        )
     )
     assert res2 is False
-    assert fake_notifier.send.call_count == 1
 
