@@ -720,7 +720,7 @@ class MicroFlyoutWindow(QWidget):
         layout_srv.setContentsMargins(12, 10, 12, 10)
         layout_srv.setSpacing(8)
 
-        lbl_srv_title = QLabel("🔌 Servizi Attivi & Icone Taskbar (v2.0.0)", card_services)
+        lbl_srv_title = QLabel("🔌 Servizi Attivi & Icone Taskbar (v{__version__})", card_services)
         lbl_srv_title.setStyleSheet("font-size: 12px; font-weight: 700; color: #FFFFFF;")
         layout_srv.addWidget(lbl_srv_title)
 
