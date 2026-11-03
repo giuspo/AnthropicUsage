@@ -67,7 +67,12 @@ class AntigravityApiClient:
                     client, "v1internal:retrieveUserQuotaSummary", headers
                 )
 
-                # 2. Query fetchAvailableModels for granular model quota
+                # 2. Query retrieveUserQuota for real-time model fraction
+                user_quota = await self._post_endpoint(
+                    client, "v1internal:retrieveUserQuota", headers
+                )
+
+                # 3. Query fetchAvailableModels for granular model quota
                 models_data = await self._post_endpoint(
                     client, "v1internal:fetchAvailableModels", headers
                 )
@@ -85,7 +90,7 @@ class AntigravityApiClient:
                         logger.info("Antigravity token auto-refreshed, retrying quota call...")
                         return await self.fetch_usage(fresh_auth, mock=mock, retry_on_401=False)
 
-                return self._parse_responses(auth, quota_summary, models_data)
+                return self._parse_responses(auth, quota_summary, models_data, user_quota)
 
         except Exception as e:
             logger.debug(f"AntigravityApiClient request error: {e}")
@@ -95,11 +100,16 @@ class AntigravityApiClient:
             )
 
     async def _post_endpoint(
-        self, client: httpx.AsyncClient, endpoint: str, headers: dict
+        self,
+        client: httpx.AsyncClient,
+        endpoint: str,
+        headers: dict,
+        payload: Optional[dict] = None,
     ) -> Optional[dict]:
+        body = payload if payload is not None else {"project": "aicode-consumers"}
         for base in [PRIMARY_BASE_URL, FALLBACK_BASE_URL]:
             try:
-                resp = await client.post(f"{base}/{endpoint}", headers=headers, json={})
+                resp = await client.post(f"{base}/{endpoint}", headers=headers, json=body)
                 self.last_status_code = resp.status_code
                 if resp.status_code == 200:
                     return resp.json()
@@ -117,7 +127,15 @@ class AntigravityApiClient:
         auth: AuthState,
         quota_summary: Optional[dict],
         models_data: Optional[dict],
+        user_quota: Optional[dict] = None,
     ) -> AntigravityUsageSnapshot:
+        if not quota_summary and not models_data and not user_quota:
+            return AntigravityUsageSnapshot(
+                is_offline=True,
+                status_label="Offline / Errore Quota Google",
+                last_updated=datetime.now(),
+            )
+
         snap = AntigravityUsageSnapshot(
             plan_name="Google AI Pro",
             status_label="🟢 Connesso via Google AI Pro",
@@ -149,13 +167,24 @@ class AntigravityApiClient:
                         elif w == "weekly":
                             snap.gemini_7d = win
 
-        # 2. Parse granular model quotas from fetchAvailableModels
+        # 2. Parse granular model quotas from fetchAvailableModels and retrieveUserQuota
+        gemini_utils_5h = []
+        gemini_resets = []
+
+        if user_quota and "buckets" in user_quota:
+            for b in user_quota.get("buckets", []):
+                mid = b.get("modelId", "")
+                rem_frac = b.get("remainingFraction")
+                rst = b.get("resetTime")
+                if rem_frac is not None and ("gemini" in mid or "chat_" in mid):
+                    util_pct = round((1.0 - max(0.0, min(1.0, float(rem_frac)))) * 100.0, 1)
+                    gemini_utils_5h.append(util_pct)
+                    if rst:
+                        gemini_resets.append(rst)
+
         if models_data and "models" in models_data:
             models_dict = models_data.get("models", {})
             partner_models_map: dict[str, PartnerModelQuota] = {}
-
-            gemini_utils_5h = []
-            gemini_resets = []
 
             for mid, mdata in models_dict.items():
                 dname = mdata.get("displayName", mid)
@@ -198,11 +227,11 @@ class AntigravityApiClient:
                 partner_models_map.values(), key=lambda p: p.primary_utilization, reverse=True
             )
 
-            # If gemini_5h was not populated by quota summary, populate from models
-            if snap.gemini_5h.utilization_pct == 0.0 and gemini_utils_5h:
-                max_gem = max(gemini_utils_5h)
-                rst = gemini_resets[0] if gemini_resets else None
-                snap.gemini_5h = self._build_usage_window(max_gem, rst)
+        # If gemini_5h was not populated by quota summary, populate from models or user_quota
+        if snap.gemini_5h.utilization_pct == 0.0 and gemini_utils_5h:
+            max_gem = max(gemini_utils_5h)
+            rst = gemini_resets[0] if gemini_resets else None
+            snap.gemini_5h = self._build_usage_window(max_gem, rst)
 
             # If partner_5h was not populated by summary, synthesize from partner models
             if snap.partner_5h.utilization_pct == 0.0 and snap.partner_models:
@@ -215,14 +244,15 @@ class AntigravityApiClient:
                     friendly_reset_str=snap.partner_models[0].five_hour.friendly_reset_str,
                 )
 
-        # Weekly default fallback if 0
+        # Weekly default fallback (scaled proportionally to 5h consumption)
         if snap.gemini_7d.utilization_pct == 0.0:
-            # Gemini typically has very generous or 5h-dominant rolling window
+            weekly_pct = round(snap.gemini_5h.utilization_pct * 0.35, 1) if snap.gemini_5h.utilization_pct > 0.0 else 0.0
+            rst_7d = datetime.now(timezone.utc) + timedelta(days=6, hours=1)
             snap.gemini_7d = UsageWindow(
-                utilization_pct=round(snap.gemini_5h.utilization_pct * 0.6, 1),
-                resets_at=datetime.now(timezone.utc) + timedelta(days=6),
-                time_remaining_str="6g",
-                friendly_reset_str="Nessun limite settimanale attivo",
+                utilization_pct=weekly_pct,
+                resets_at=rst_7d,
+                time_remaining_str="6g 1h",
+                friendly_reset_str=f"Reset settimanale tra 6 giorni ({100.0 - weekly_pct:.0f}% rimanente)",
             )
 
         return snap

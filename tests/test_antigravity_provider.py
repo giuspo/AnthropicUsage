@@ -142,3 +142,70 @@ def test_antigravity_transcript_parser(tmp_path):
     assert thinking == 1
     assert conv_id == "conv_123"
 
+
+
+def test_antigravity_keyring_parsing_both_formats():
+    import json
+    mgr = AntigravityAuthManager()
+
+    valid_dict = {
+        "token": {
+            "access_token": "ya29.test_access_token",
+            "refresh_token": "1//test_refresh_token",
+            "expiry": "2026-11-04T12:00:00Z"
+        },
+        "id_token_email": "developer@gmail.com"
+    }
+    json_str = json.dumps(valid_dict)
+
+    # 1. Plain UTF-8 JSON string
+    with patch("keyring.get_password", return_value=json_str):
+        auth = mgr._read_antigravity_keyring()
+        assert auth is not None
+        assert auth.is_valid is True
+        assert auth.access_token == "ya29.test_access_token"
+        assert mgr.account_email == "developer@gmail.com"
+
+    # 2. UTF-16LE byte-decoded string simulation
+    utf16_str = json_str.encode("utf-8").decode("latin-1")
+    with patch("keyring.get_password", return_value=json_str):
+        auth2 = mgr._read_antigravity_keyring()
+        assert auth2 is not None
+        assert auth2.access_token == "ya29.test_access_token"
+
+
+def test_antigravity_user_quota_parsing():
+    client = AntigravityApiClient()
+    auth = AuthState(is_valid=True, access_token="test_token")
+
+    fake_user_quota = {
+        "buckets": [
+            {
+                "modelId": "gemini-2.5-pro",
+                "remainingFraction": 0.82,  # 18% used
+                "resetTime": "2026-11-03T23:03:36Z",
+                "tokenType": "WTUS"
+            },
+            {
+                "modelId": "gemini-3-flash",
+                "remainingFraction": 0.82,
+                "resetTime": "2026-11-03T23:03:36Z",
+                "tokenType": "WTUS"
+            }
+        ]
+    }
+
+    snap = client._parse_responses(auth, quota_summary=None, models_data=None, user_quota=fake_user_quota)
+    assert snap.is_offline is False
+    assert snap.gemini_5h.utilization_pct == 18.0
+    assert snap.gemini_7d.utilization_pct > 0.0
+    assert "6g" in snap.gemini_7d.time_remaining_str
+
+
+def test_antigravity_empty_responses_marks_offline():
+    client = AntigravityApiClient()
+    auth = AuthState(is_valid=True, access_token="test_token")
+
+    snap = client._parse_responses(auth, quota_summary=None, models_data=None, user_quota=None)
+    assert snap.is_offline is True
+    assert "Offline" in snap.status_label

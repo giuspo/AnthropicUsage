@@ -97,16 +97,25 @@ class AntigravityAuthManager:
             if not raw:
                 return None
 
-            # On Windows, raw string from keyring might be UTF-16LE encoded bytes representing UTF-8 JSON
-            payload_str = None
-            try:
-                raw_bytes = raw.encode("utf-16le")
-                payload_str = raw_bytes.decode("utf-8")
-            except Exception:
-                payload_str = raw
+            data = None
+            payload_str = str(raw).strip()
+            if payload_str.startswith("{"):
+                try:
+                    data = json.loads(payload_str)
+                except Exception:
+                    data = None
 
-            if payload_str and payload_str.strip().startswith("{"):
-                data = json.loads(payload_str)
+            if data is None:
+                # On Windows, raw string from keyring might be UTF-16LE encoded bytes representing UTF-8 JSON
+                try:
+                    raw_bytes = raw.encode("utf-16le")
+                    decoded = raw_bytes.decode("utf-8")
+                    if decoded.strip().startswith("{"):
+                        data = json.loads(decoded)
+                except Exception:
+                    pass
+
+            if data:
                 token_obj = data.get("token", data)
                 access_token = token_obj.get("access_token")
                 refresh_token = token_obj.get("refresh_token")
