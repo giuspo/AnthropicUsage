@@ -219,38 +219,38 @@ class AntigravityAuthManager:
 
     async def refresh_if_expired(self) -> AuthState:
         """Checks expiration and triggers silent background refresh via agy CLI or keyring reload."""
-        state = self.get_credentials()
-        if not state.is_valid:
-            return state
+        # 1. First reload directly from keyring: if VSCode or user refreshed it, we get the fresh token immediately
+        fresh = self.get_credentials(force_reload=True)
+        if fresh.is_valid and not fresh.is_expired():
+            self._current_state = fresh
+            return fresh
 
-        if state.is_expired():
-            # If agy CLI is installed, running a quick command refreshes credentials in keyring
-            agy_bin = shutil.which("agy") or (
-                str(Path.home() / "AppData" / "Local" / "agy" / "bin" / "agy.exe")
-                if sys.platform == "win32"
-                else None
-            )
+        # 2. Only if token is truly expired, attempt completely silent CLI refresh with CREATE_NO_WINDOW
+        if fresh.is_expired():
+            agy_bin = self.get_agy_bin()
             if agy_bin and Path(agy_bin).exists():
                 try:
+                    flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
                     proc = await asyncio.create_subprocess_exec(
                         agy_bin,
                         "models",
                         stdout=asyncio.subprocess.PIPE,
                         stderr=asyncio.subprocess.PIPE,
+                        creationflags=flags,
                     )
                     await asyncio.wait_for(proc.communicate(), timeout=8.0)
-                    fresh = self._resolve_credentials()
-                    if fresh and fresh.is_valid and not fresh.is_expired():
-                        self._current_state = fresh
-                        return fresh
+                    reloaded = self._resolve_credentials()
+                    if reloaded and reloaded.is_valid and not reloaded.is_expired():
+                        self._current_state = reloaded
+                        return reloaded
                 except Exception as e:
                     logger.debug(f"agy refresh failed: {e}")
 
-            # Re-read credentials in case external app refreshed it
-            fresh = self._resolve_credentials()
-            if fresh and fresh.is_valid and not fresh.is_expired():
-                self._current_state = fresh
-                return fresh
+            # Fallback re-read
+            reloaded = self._resolve_credentials()
+            if reloaded and reloaded.is_valid and not reloaded.is_expired():
+                self._current_state = reloaded
+                return reloaded
 
         return self._current_state
 
