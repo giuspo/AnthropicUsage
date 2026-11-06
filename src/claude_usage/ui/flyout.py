@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import sys
 import webbrowser
 from pathlib import Path
 from typing import Optional
