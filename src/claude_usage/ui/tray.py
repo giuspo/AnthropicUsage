@@ -869,13 +869,19 @@ class TrayController(QSystemTrayIcon):
             if tray_mode == "split_partner_icon":
                 self._show_tray_icon(self.tray_partner, "ClaudeUsagePartner")
 
-                # Icon 2: Gemini
+                # Icon 2: Gemini (with dedicated Argon alert badge if active)
+                argon_val = (
+                    antigravity_snap.gemini_argon_7d.utilization_pct
+                    if antigravity_snap.gemini_argon_7d is not None
+                    else None
+                )
                 icon_gemini = IconRenderer.render_tray_icon(
                     five_hour_pct=antigravity_snap.gemini_5h.utilization_pct,
                     seven_day_pct=antigravity_snap.gemini_7d.utilization_pct,
                     is_offline=antigravity_snap.is_offline,
                     style=style,
                     provider_type="antigravity_gemini",
+                    argon_pct=argon_val,
                 )
                 self.tray_antigravity.setIcon(icon_gemini)
                 g5 = int(round(antigravity_snap.gemini_5h.utilization_pct))
@@ -909,6 +915,11 @@ class TrayController(QSystemTrayIcon):
                 # Single Icon: selected pool
                 p5_val, p7_val, pool_lbl = antigravity_snap.get_single_pool_utilization(single_pool)
                 prov_t = "antigravity_partner" if pool_lbl == "Partner" else "antigravity_gemini"
+                argon_single = (
+                    antigravity_snap.gemini_argon_7d.utilization_pct
+                    if (antigravity_snap.gemini_argon_7d is not None and pool_lbl != "Partner")
+                    else None
+                )
 
                 icon_single = IconRenderer.render_tray_icon(
                     five_hour_pct=p5_val,
@@ -916,6 +927,7 @@ class TrayController(QSystemTrayIcon):
                     is_offline=antigravity_snap.is_offline,
                     style=style,
                     provider_type=prov_t,
+                    argon_pct=argon_single,
                 )
                 self.tray_antigravity.setIcon(icon_single)
 

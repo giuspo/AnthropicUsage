@@ -43,8 +43,9 @@ class IconRenderer:
         style: str = "concentric",
         provider_type: str = "claude",
         size: int = TARGET_SIZE,
+        argon_pct: Optional[float] = None,
     ) -> QIcon:
-        """Generates a QIcon representing current quota utilization with dual indicators."""
+        """Generates a QIcon representing current quota utilization with dual indicators and optional Argon alert badge."""
         img = cls.render_pil_image(
             five_hour_pct=five_hour_pct,
             seven_day_pct=seven_day_pct,
@@ -52,6 +53,7 @@ class IconRenderer:
             style=style,
             provider_type=provider_type,
             target_size=size,
+            argon_pct=argon_pct,
         )
         byte_arr = io.BytesIO()
         img.save(byte_arr, format="PNG")
@@ -68,6 +70,7 @@ class IconRenderer:
         style: str = "concentric",
         provider_type: str = "claude",
         target_size: int = TARGET_SIZE,
+        argon_pct: Optional[float] = None,
     ) -> Image.Image:
         """Draws the 256x256 vector supersampled icon and downsamples to target_size."""
         dim = cls.CANVAS_SIZE
@@ -89,7 +92,11 @@ class IconRenderer:
         track_7d = (rgb_7d[0], rgb_7d[1], rgb_7d[2], 65)
 
         # Determine central glyph color (escalating to Warning Amber or Critical Red)
-        max_p = max(p_5h, p_7d)
+        pct_list = [p_5h, p_7d]
+        if argon_pct is not None:
+            pct_list.append(float(argon_pct))
+        max_p = max(pct_list)
+
         if max_p >= 90.0:
             center_color = (COLOR_CRITICAL[0], COLOR_CRITICAL[1], COLOR_CRITICAL[2], 255)
         elif max_p >= 75.0:
@@ -188,6 +195,14 @@ class IconRenderer:
             # Central Glyph
             cls._draw_center_glyph(draw, cx, cy, radius=36.0, color=center_color, provider_type=provider_type)
 
+        # Draw dedicated Gemini 4 Argon alert badge / pip when present
+        if argon_pct is not None:
+            if style == "bars":
+                bx, by, brad = 212.0, 38.0, 32.0
+            else:
+                bx, by, brad = 210.0, 46.0, 28.0
+            cls._draw_argon_badge(draw, bx, by, argon_pct, radius=brad)
+
         return img.resize((target_size, target_size), Image.Resampling.LANCZOS)
 
     @classmethod
@@ -245,6 +260,39 @@ class IconRenderer:
             r_pt = radius if (i % 2 == 0) else (radius * 0.36)
             pts.append((cx + r_pt * math.cos(ang), cy + r_pt * math.sin(ang)))
         draw.polygon(pts, fill=color)
+
+    @classmethod
+    def _draw_argon_badge(
+        cls,
+        draw: ImageDraw.ImageDraw,
+        bx: float,
+        by: float,
+        pct: float,
+        radius: float = 30.0,
+    ) -> None:
+        """Draws a crisp alert badge / pip indicating Gemini 4 Argon quota level."""
+        p = max(0.0, min(100.0, float(pct)))
+        if p >= 90.0:
+            fill_color = (239, 68, 68, 255)       # Critical Red #EF4444
+            glow_color = (254, 202, 202, 255)     # Light Pink core
+        elif p >= 75.0:
+            fill_color = (245, 158, 11, 255)      # Amber Warning #F59E0B
+            glow_color = (254, 243, 199, 255)     # Light Yellow core
+        else:
+            fill_color = (168, 85, 247, 255)      # Noble Gas Argon Violet #A855F7
+            glow_color = (233, 213, 255, 255)
+
+        # 1. Dark outline halo for maximum contrast on any background/bars
+        halo_r = radius
+        draw.ellipse((bx - halo_r, by - halo_r, bx + halo_r, by + halo_r), fill=(18, 18, 20, 255))
+
+        # 2. Outer colored ring / fill
+        inner_r = radius - 5.0
+        draw.ellipse((bx - inner_r, by - inner_r, bx + inner_r, by + inner_r), fill=fill_color)
+
+        # 3. Bright core pip dot (creates an illuminated LED / alert lens effect)
+        core_r = max(4.0, inner_r * 0.40)
+        draw.ellipse((bx - core_r, by - core_r, bx + core_r, by + core_r), fill=glow_color)
 
     @classmethod
     def _draw_arc_with_caps(
