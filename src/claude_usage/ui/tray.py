@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import ctypes
 import logging
+import sys
 from typing import Optional
 
-from PyQt6.QtCore import pyqtSignal
-from PyQt6.QtGui import QAction
-from PyQt6.QtWidgets import QMenu, QSystemTrayIcon, QWidget
+from PyQt6 import sip
+from PyQt6.QtCore import QCoreApplication, QPoint, QRect, Qt, QTimer, pyqtSignal
+from PyQt6.QtGui import QAction, QColor, QCursor, QEnterEvent, QGuiApplication, QMouseEvent, QPalette
+from PyQt6.QtWidgets import QLabel, QMenu, QSystemTrayIcon, QWidget
 
 from claude_usage import __version__
 from claude_usage.core.models import (
@@ -17,6 +20,7 @@ from claude_usage.core.models import (
 )
 from claude_usage.ui.flyout import MicroFlyoutWindow
 from claude_usage.ui.icon_renderer import IconRenderer
+from claude_usage.ui.positioner import WindowPositioner
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +40,248 @@ def truncate_tooltip(title: str, text: str) -> str:
     return full[:MAX_WIN32_TOOLTIP_LEN]
 
 
+def _has_x11_system_tray() -> bool:
+    """Returns True on Linux/XCB when an active _NET_SYSTEM_TRAY_S0 manager is running."""
+    if not sys.platform.startswith("linux"):
+        return False
+    try:
+        if QGuiApplication.platformName() != "xcb":
+            return False
+        x11 = ctypes.CDLL("libX11.so.6")
+        x11.XOpenDisplay.argtypes = [ctypes.c_char_p]
+        x11.XOpenDisplay.restype = ctypes.c_void_p
+        x11.XInternAtom.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_int]
+        x11.XInternAtom.restype = ctypes.c_ulong
+        x11.XGetSelectionOwner.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
+        x11.XGetSelectionOwner.restype = ctypes.c_ulong
+        x11.XCloseDisplay.argtypes = [ctypes.c_void_p]
+        dpy = x11.XOpenDisplay(None)
+        if not dpy:
+            return False
+        atom = x11.XInternAtom(dpy, b"_NET_SYSTEM_TRAY_S0", 0)
+        owner = x11.XGetSelectionOwner(dpy, atom)
+        x11.XCloseDisplay(dpy)
+        return bool(owner)
+    except Exception as e:
+        logger.debug(f"X11 system tray probe failed: {e}")
+        return False
+
+
+class _LinuxTrayTooltip(QLabel):
+    """Frameless dark tooltip popup for Linux/GNOME tray icons."""
+
+    def __init__(self) -> None:
+        super().__init__(None)
+        self.setWindowFlags(
+            Qt.WindowType.ToolTip
+            | Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.BypassWindowManagerHint
+            | Qt.WindowType.WindowStaysOnTopHint
+            | Qt.WindowType.WindowDoesNotAcceptFocus
+        )
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self.setStyleSheet(
+            """
+            QLabel {
+                background-color: #181825;
+                color: #CDD6F4;
+                border: 1px solid #45475A;
+                border-radius: 6px;
+                padding: 6px 12px;
+                font-size: 12px;
+                font-weight: 500;
+            }
+            """
+        )
+        self._hide_timer = QTimer(self)
+        self._hide_timer.setSingleShot(True)
+        self._hide_timer.timeout.connect(self.hide)
+
+    def show_for_tray(self, text: str, tray_geometry: QRect, center_x: int | None = None) -> None:
+        if not text:
+            return
+        self.setText(text)
+        self.adjustSize()
+
+        primary = QGuiApplication.primaryScreen()
+        if not primary:
+            return
+        if center_x is None:
+            pos = WindowPositioner.calculate_menu_position(tray_geometry, self.width())
+            target_x = pos.x()
+        else:
+            target_x = center_x - (self.width() // 2)
+
+        min_x = primary.geometry().left() + 12
+        max_x = primary.geometry().right() - self.width() - 12
+        clamped_x = max(min_x, min(max_x, target_x))
+        target_y = 36  # Directly below the 32px top panel
+
+        self.move(clamped_x, target_y)
+        self.show()
+        self.raise_()
+        self._hide_timer.start(5000)
+
+
+class _DarkContextMenu(QMenu):
+    """Context menu with automatic closing on blur/deactivate and escape key."""
+
+    def event(self, event: QEvent) -> bool:
+        if event.type() in (
+            QEvent.Type.WindowDeactivate,
+            QEvent.Type.ApplicationDeactivate,
+        ):
+            self.close()
+        return super().event(event)
+
+    def keyPressEvent(self, event) -> None:
+        if event.key() == Qt.Key.Key_Escape:
+            self.close()
+            return
+        super().keyPressEvent(event)
+
+
+class _MenuBackdrop(QWidget):
+    """Transparent click-catcher that dismisses the context menu when clicking anywhere outside."""
+
+    def __init__(self, menu: QMenu) -> None:
+        super().__init__(None)
+        self._menu = menu
+        self.setWindowFlags(
+            Qt.WindowType.Tool
+            | Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.WindowStaysOnTopHint
+        )
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setWindowOpacity(0.01)
+
+    def mousePressEvent(self, event: QMouseEvent | None) -> None:
+        self.hide()
+        self._menu.close()
+
+
+class _LinuxTrayHoverSensor(QWidget):
+    """X11 overlay sensor spanning the entire 32px height of the GNOME Top Bar tray icons."""
+
+    SENSOR_HEIGHT = 32
+
+    def __init__(self, controller: TrayController) -> None:
+        super().__init__(None)
+        self._controller = controller
+        self.setWindowFlags(
+            Qt.WindowType.ToolTip
+            | Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.BypassWindowManagerHint
+            | Qt.WindowType.WindowStaysOnTopHint
+        )
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
+        self.setMouseTracking(True)
+        self.setWindowOpacity(0.01)
+
+        self._current_hover_icon: Optional[QSystemTrayIcon] = None
+
+    def update_sensor_geometry(self) -> None:
+        primary = QGuiApplication.primaryScreen()
+        if not primary:
+            return
+        centers = self._controller._get_active_tray_centers(primary)
+        if not centers:
+            self.hide()
+            return
+        xs = [c[0] for c in centers]
+        min_x = min(xs) - 16
+        max_x = max(xs) + 16
+        target_w = max(36, max_x - min_x)
+        self.setGeometry(min_x, 0, target_w, self.SENSOR_HEIGHT)
+        self.move(min_x, 0)
+        if not self.isVisible():
+            self.show()
+            self.raise_()
+
+    def _resolve_hover_target(self, gx: int) -> tuple[int, QSystemTrayIcon] | None:
+        primary = QGuiApplication.primaryScreen()
+        if not primary:
+            return None
+        centers = self._controller._get_active_tray_centers(primary)
+        if not centers:
+            return None
+        best = min(centers, key=lambda item: abs(item[0] - gx))
+        if abs(best[0] - gx) <= 24:
+            return best
+        return None
+
+    def enterEvent(self, event: QEnterEvent | None) -> None:
+        if event is not None:
+            self._handle_pointer_position(int(event.globalPosition().x()))
+        super().enterEvent(event)
+
+    def mouseMoveEvent(self, event: QMouseEvent | None) -> None:
+        if event is not None:
+            self._handle_pointer_position(int(event.globalPosition().x()))
+        super().mouseMoveEvent(event)
+
+    def _handle_pointer_position(self, gx: int) -> None:
+        if self._controller.flyout.isVisible() or self._controller._shared_menu.isVisible():
+            if self._controller._linux_tooltip is not None:
+                self._controller._linux_tooltip.hide()
+            return
+
+        target = self._resolve_hover_target(gx)
+        if target is None:
+            if self._controller._linux_tooltip is not None:
+                self._controller._linux_tooltip.hide()
+            self._current_hover_icon = None
+            return
+
+        cx, tray_icon = target
+        if tray_icon != self._current_hover_icon or not (
+            self._controller._linux_tooltip and self._controller._linux_tooltip.isVisible()
+        ):
+            self._current_hover_icon = tray_icon
+            if self._controller._linux_tooltip is not None:
+                self._controller._linux_tooltip.show_for_tray(
+                    tray_icon.toolTip(), tray_icon.geometry(), center_x=cx
+                )
+
+    def leaveEvent(self, event) -> None:
+        self._current_hover_icon = None
+        if self._controller._linux_tooltip is not None:
+            self._controller._linux_tooltip.hide()
+        super().leaveEvent(event)
+
+    def mousePressEvent(self, event: QMouseEvent | None) -> None:
+        if event is None:
+            return
+        if self._controller._linux_tooltip is not None:
+            self._controller._linux_tooltip.hide()
+
+        # If context menu is already open, clicking on the tray area closes it
+        if self._controller._shared_menu.isVisible():
+            self._controller._shared_menu.close()
+            return
+
+        target = self._resolve_hover_target(int(event.globalPosition().x()))
+        if target is None:
+            return
+
+        cx, tray_icon = target
+        btn = event.button()
+
+        if btn == Qt.MouseButton.LeftButton:
+            if tray_icon is self._controller:
+                self._controller.flyout.toggle_at_tray(tray_icon.geometry(), target_tab="claude")
+            elif tray_icon is self._controller.tray_antigravity:
+                self._controller.flyout.toggle_at_tray(tray_icon.geometry(), target_tab="antigravity")
+            elif tray_icon is self._controller.tray_partner:
+                self._controller.flyout.toggle_at_tray(tray_icon.geometry(), target_tab="antigravity_partner")
+        elif btn == Qt.MouseButton.RightButton:
+            self._controller._popup_context_menu(tray_icon.geometry())
+
+    def mouseDoubleClickEvent(self, event: QMouseEvent | None) -> None:
+        self.mousePressEvent(event)
+
+
 class TrayController(QSystemTrayIcon):
     """Coordinates up to three system tray icons for Claude, Antigravity, and Partner models."""
 
@@ -50,10 +296,23 @@ class TrayController(QSystemTrayIcon):
         self.tray_antigravity = QSystemTrayIcon(parent)
         self.tray_partner = QSystemTrayIcon(parent)
 
+        self._use_x11_tray = _has_x11_system_tray()
+        self._x11_configured: set[int] = set()
+        self._linux_tooltip: Optional[_LinuxTrayTooltip] = None
+        self._linux_hover_sensor: Optional[_LinuxTrayHoverSensor] = None
+        if self._use_x11_tray:
+            self._linux_tooltip = _LinuxTrayTooltip()
+            self._linux_hover_sensor = _LinuxTrayHoverSensor(self)
+
         self._shared_menu = self._create_menu()
-        self.setContextMenu(self._shared_menu)
-        self.tray_antigravity.setContextMenu(self._shared_menu)
-        self.tray_partner.setContextMenu(self._shared_menu)
+        self._menu_backdrop: Optional[_MenuBackdrop] = None
+        if not self._use_x11_tray:
+            self.setContextMenu(self._shared_menu)
+            self.tray_antigravity.setContextMenu(self._shared_menu)
+            self.tray_partner.setContextMenu(self._shared_menu)
+        else:
+            self._menu_backdrop = _MenuBackdrop(self._shared_menu)
+            self._shared_menu.aboutToHide.connect(self._menu_backdrop.hide)
 
         # Wire activation signals
         self.activated.connect(self._on_claude_activated)
@@ -74,11 +333,49 @@ class TrayController(QSystemTrayIcon):
         self.tray_partner.setToolTip("Antigravity Partner: Inizializzazione...")
 
     def _create_menu(self) -> QMenu:
-        menu = QMenu()
+        menu = _DarkContextMenu()
+        menu.setStyleSheet(
+            """
+            QMenu {
+                background-color: #181825;
+                color: #CDD6F4;
+                border: 1px solid #313244;
+                border-radius: 8px;
+                padding: 6px;
+                font-size: 13px;
+            }
+            QMenu::item {
+                padding: 6px 20px;
+                border-radius: 5px;
+            }
+            QMenu::item:selected {
+                background-color: #313244;
+                color: #FFFFFF;
+            }
+            QMenu::item:disabled {
+                color: #6C7086;
+                font-weight: bold;
+            }
+            QMenu::separator {
+                height: 1px;
+                background: #313244;
+                margin: 4px 8px;
+            }
+            """
+        )
 
         act_app_info = QAction(f"Claude & Antigravity Usage v{__version__}", menu)
         act_app_info.setEnabled(False)
         menu.addAction(act_app_info)
+
+        self._act_claude_summary = QAction("🟠 Claude: Inizializzazione...", menu)
+        self._act_claude_summary.setEnabled(False)
+        menu.addAction(self._act_claude_summary)
+
+        self._act_ag_summary = QAction("🔵 Antigravity: Inizializzazione...", menu)
+        self._act_ag_summary.setEnabled(False)
+        menu.addAction(self._act_ag_summary)
+
         menu.addSeparator()
 
         act_show = QAction("📊 Mostra Widget", menu)
@@ -107,6 +404,159 @@ class TrayController(QSystemTrayIcon):
 
         return menu
 
+    def _show_tray_icon(self, tray: QSystemTrayIcon, wm_class: str) -> None:
+        """Shows a tray icon, using X11 QSystemTrayIconSys on Linux/GNOME for direct left/right click."""
+        if not self._use_x11_tray:
+            if tray is self:
+                super().show()
+            else:
+                tray.show()
+            return
+
+        try:
+            c_ptr = sip.unwrapinstance(tray)
+            d_ptr = ctypes.c_uint64.from_address(c_ptr + 8).value
+            sys_ptr = ctypes.c_uint64.from_address(d_ptr + 0xA8).value
+
+            if not sys_ptr:
+                # Disable QDBusTrayIcon (qpa_sys at offset 0xB0) so Qt uses QSystemTrayIconSys (XEmbed),
+                # which receives direct Button1 (Trigger) and Button3 (Context) events on Ubuntu GNOME.
+                ctypes.c_uint64.from_address(d_ptr + 0xB0).value = 0
+
+                # Clear QXcbIntegration's cached m_wmClass size so each icon gets a unique WM_CLASS
+                try:
+                    lib_xcb = ctypes.CDLL("libQt6XcbQpa.so.6")
+                    xcb_inst = ctypes.c_uint64.in_dll(lib_xcb, "_ZN15QXcbIntegration10m_instanceE").value
+                    if xcb_inst:
+                        ctypes.c_uint64.from_address(xcb_inst + 0x58).value = 0
+                except Exception as e:
+                    logger.debug(f"Could not reset QXcbIntegration wmClass cache: {e}")
+
+                prev_name = QCoreApplication.applicationName()
+                QCoreApplication.setApplicationName(wm_class)
+                try:
+                    if tray is self:
+                        super().show()
+                    else:
+                        tray.show()
+                finally:
+                    QCoreApplication.setApplicationName(prev_name or "Claude & Antigravity Usage")
+
+                sys_ptr = ctypes.c_uint64.from_address(d_ptr + 0xA8).value
+                if sys_ptr:
+                    self._configure_x11_tray_widget(sys_ptr)
+            else:
+                if tray is self:
+                    super().show()
+                else:
+                    tray.show()
+        except Exception as e:
+            logger.debug(f"Fallback to standard tray show ({wm_class}): {e}")
+            if tray is self:
+                super().show()
+            else:
+                tray.show()
+
+    def _configure_x11_tray_widget(self, sys_ptr: int) -> None:
+        """Configures the X11 QSystemTrayIconSys widget for crisp HiDPI rendering on GNOME Top Bar."""
+        try:
+            w = sip.wrapinstance(sys_ptr, QWidget)
+            w.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, False)
+            w.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
+            w.setAutoFillBackground(True)
+            pal = w.palette()
+            pal.setColor(QPalette.ColorRole.Window, QColor("#131313"))
+            w.setPalette(pal)
+            wid = int(w.winId())
+
+            def _resize_xembed() -> None:
+                try:
+                    x11 = ctypes.CDLL("libX11.so.6")
+                    x11.XOpenDisplay.argtypes = [ctypes.c_char_p]
+                    x11.XOpenDisplay.restype = ctypes.c_void_p
+                    x11.XQueryTree.argtypes = [
+                        ctypes.c_void_p,
+                        ctypes.c_ulong,
+                        ctypes.POINTER(ctypes.c_ulong),
+                        ctypes.POINTER(ctypes.c_ulong),
+                        ctypes.POINTER(ctypes.c_void_p),
+                        ctypes.POINTER(ctypes.c_uint),
+                    ]
+                    x11.XResizeWindow.argtypes = [
+                        ctypes.c_void_p,
+                        ctypes.c_ulong,
+                        ctypes.c_uint,
+                        ctypes.c_uint,
+                    ]
+                    x11.XMoveResizeWindow.argtypes = [
+                        ctypes.c_void_p,
+                        ctypes.c_ulong,
+                        ctypes.c_int,
+                        ctypes.c_int,
+                        ctypes.c_uint,
+                        ctypes.c_uint,
+                    ]
+                    x11.XFlush.argtypes = [ctypes.c_void_p]
+                    x11.XCloseDisplay.argtypes = [ctypes.c_void_p]
+
+                    dpy = x11.XOpenDisplay(None)
+                    if not dpy:
+                        return
+                    root = ctypes.c_ulong()
+                    parent = ctypes.c_ulong()
+                    children = ctypes.c_void_p()
+                    nchildren = ctypes.c_uint()
+                    x11.XQueryTree(
+                        dpy,
+                        wid,
+                        ctypes.byref(root),
+                        ctypes.byref(parent),
+                        ctypes.byref(children),
+                        ctypes.byref(nchildren),
+                    )
+                    if parent.value and parent.value != root.value:
+                        x11.XResizeWindow(dpy, parent.value, 32, 32)
+                    x11.XMoveResizeWindow(dpy, wid, 0, 0, 32, 32)
+                    x11.XFlush(dpy)
+                    x11.XCloseDisplay(dpy)
+                    w.update()
+                    if self._linux_hover_sensor is not None:
+                        self._linux_hover_sensor.update_sensor_geometry()
+                except Exception as ex:
+                    logger.debug(f"XEmbed resize failed: {ex}")
+
+            for delay_ms in (50, 250, 800, 1500):
+                QTimer.singleShot(delay_ms, _resize_xembed)
+        except Exception as e:
+            logger.debug(f"Failed configuring X11 tray widget: {e}")
+
+    def _get_active_tray_centers(self, primary) -> list[tuple[int, QSystemTrayIcon]]:
+        """Returns (center_x, tray_icon) on primaryScreen() for all currently visible tray icons."""
+        result: list[tuple[int, QSystemTrayIcon]] = []
+        for tray in (self, self.tray_antigravity, self.tray_partner):
+            if tray.isVisible():
+                cx = WindowPositioner._resolve_linux_tray_center_x(tray.geometry(), primary)
+                if cx is not None:
+                    result.append((cx, tray))
+        return result
+
+    def _popup_context_menu(self, tray_geometry: QRect) -> None:
+        """Pops up the context menu directly below the clicked tray icon on the primary screen."""
+        if self._linux_tooltip is not None:
+            self._linux_tooltip.hide()
+
+        pos = WindowPositioner.calculate_menu_position(tray_geometry, self._shared_menu.sizeHint().width() or 240)
+
+        if self._menu_backdrop is not None:
+            primary = QGuiApplication.primaryScreen()
+            if primary:
+                self._menu_backdrop.setGeometry(primary.geometry())
+                self._menu_backdrop.show()
+                self._menu_backdrop.raise_()
+
+        self._shared_menu.popup(pos)
+        self._shared_menu.raise_()
+
     def show(self) -> None:
         """Shows active tray icons based on user configuration."""
         cfg = getattr(self.flyout, "config", None)
@@ -115,29 +565,42 @@ class TrayController(QSystemTrayIcon):
         tray_mode = getattr(cfg, "antigravity_tray_mode", "single_icon")
 
         if enable_claude:
-            super().show()
+            self._show_tray_icon(self, "ClaudeUsageClaude")
         else:
-            self.hide()
+            super().hide()
 
         if enable_antigravity:
-            self.tray_antigravity.show()
+            self._show_tray_icon(self.tray_antigravity, "ClaudeUsageGemini")
             if tray_mode == "split_partner_icon":
-                self.tray_partner.show()
+                self._show_tray_icon(self.tray_partner, "ClaudeUsagePartner")
             else:
                 self.tray_partner.hide()
         else:
             self.tray_antigravity.hide()
             self.tray_partner.hide()
 
+        if self._linux_hover_sensor is not None:
+            QTimer.singleShot(300, self._linux_hover_sensor.update_sensor_geometry)
+
     def hide(self) -> None:
         super().hide()
         self.tray_antigravity.hide()
         self.tray_partner.hide()
+        if self._linux_tooltip is not None:
+            self._linux_tooltip.hide()
+        if self._linux_hover_sensor is not None:
+            self._linux_hover_sensor.hide()
 
     def cleanup(self) -> None:
         """Hides and explicitly unregisters all tray icons from the OS panel and D-Bus."""
         try:
             self.hide()
+            if self._linux_tooltip is not None:
+                self._linux_tooltip.close()
+            if self._linux_hover_sensor is not None:
+                self._linux_hover_sensor.close()
+            if self._menu_backdrop is not None:
+                self._menu_backdrop.close()
             self.setVisible(False)
             self.tray_antigravity.setVisible(False)
             self.tray_partner.setVisible(False)
@@ -148,16 +611,41 @@ class TrayController(QSystemTrayIcon):
             logger.debug(f"Error during tray cleanup: {e}")
 
     def _on_claude_activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
-        if reason in (QSystemTrayIcon.ActivationReason.Trigger, QSystemTrayIcon.ActivationReason.MiddleClick):
+        if self._linux_tooltip is not None:
+            self._linux_tooltip.hide()
+        if reason in (
+            QSystemTrayIcon.ActivationReason.Trigger,
+            QSystemTrayIcon.ActivationReason.DoubleClick,
+            QSystemTrayIcon.ActivationReason.MiddleClick,
+        ):
             self.flyout.toggle_at_tray(self.geometry(), target_tab="claude")
+        elif reason == QSystemTrayIcon.ActivationReason.Context and self._use_x11_tray:
+            self._popup_context_menu(self.geometry())
 
     def _on_antigravity_activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
-        if reason in (QSystemTrayIcon.ActivationReason.Trigger, QSystemTrayIcon.ActivationReason.MiddleClick):
+        if self._linux_tooltip is not None:
+            self._linux_tooltip.hide()
+        if reason in (
+            QSystemTrayIcon.ActivationReason.Trigger,
+            QSystemTrayIcon.ActivationReason.DoubleClick,
+            QSystemTrayIcon.ActivationReason.MiddleClick,
+        ):
             self.flyout.toggle_at_tray(self.tray_antigravity.geometry(), target_tab="antigravity")
+        elif reason == QSystemTrayIcon.ActivationReason.Context and self._use_x11_tray:
+            self._popup_context_menu(self.tray_antigravity.geometry())
 
     def _on_partner_activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
-        if reason in (QSystemTrayIcon.ActivationReason.Trigger, QSystemTrayIcon.ActivationReason.MiddleClick):
+        if self._linux_tooltip is not None:
+            self._linux_tooltip.hide()
+        if reason in (
+            QSystemTrayIcon.ActivationReason.Trigger,
+            QSystemTrayIcon.ActivationReason.DoubleClick,
+            QSystemTrayIcon.ActivationReason.MiddleClick,
+        ):
             self.flyout.toggle_at_tray(self.tray_partner.geometry(), target_tab="antigravity_partner")
+        elif reason == QSystemTrayIcon.ActivationReason.Context and self._use_x11_tray:
+            self._popup_context_menu(self.tray_partner.geometry())
+
 
     def show_flyout(self, target_tab: str = "overview") -> None:
         """Brings the flyout to front and activates it."""
@@ -200,7 +688,7 @@ class TrayController(QSystemTrayIcon):
 
         # 1. Update Claude Icon
         if enable_claude and claude_snap:
-            super().show()
+            self._show_tray_icon(self, "ClaudeUsageClaude")
             icon_claude = IconRenderer.render_tray_icon(
                 five_hour_pct=claude_snap.five_hour.utilization_pct,
                 seven_day_pct=claude_snap.seven_day.utilization_pct,
@@ -214,15 +702,18 @@ class TrayController(QSystemTrayIcon):
             p7 = int(round(claude_snap.seven_day.utilization_pct))
             txt = f"5h: {p5}% ({claude_snap.five_hour.time_remaining_str}) | 7g: {p7}% ({claude_snap.seven_day.time_remaining_str})"
             self.setToolTip(truncate_tooltip(claude_snap.workspace_name, txt))
+            self._act_claude_summary.setText(f"🟠 Claude: {txt}")
+            self._act_claude_summary.setVisible(True)
         else:
-            self.hide()
+            super().hide()
+            self._act_claude_summary.setVisible(False)
 
         # 2. Update Antigravity Icon(s)
         if enable_antigravity and antigravity_snap:
-            self.tray_antigravity.show()
+            self._show_tray_icon(self.tray_antigravity, "ClaudeUsageGemini")
 
             if tray_mode == "split_partner_icon":
-                self.tray_partner.show()
+                self._show_tray_icon(self.tray_partner, "ClaudeUsagePartner")
 
                 # Icon 2: Gemini
                 icon_gemini = IconRenderer.render_tray_icon(
@@ -237,6 +728,8 @@ class TrayController(QSystemTrayIcon):
                 g7 = int(round(antigravity_snap.gemini_7d.utilization_pct))
                 gtxt = f"5h: {g5}% ({antigravity_snap.gemini_5h.time_remaining_str}) | 7g: {g7}% ({antigravity_snap.gemini_7d.time_remaining_str})"
                 self.tray_antigravity.setToolTip(truncate_tooltip("Antigravity Gemini", gtxt))
+                self._act_ag_summary.setText(f"🔵 Gemini: {gtxt}")
+                self._act_ag_summary.setVisible(True)
 
                 # Icon 3: Partner
                 icon_partner = IconRenderer.render_tray_icon(
@@ -277,9 +770,15 @@ class TrayController(QSystemTrayIcon):
                 )
                 stxt = f"5h: {p5_int}% ({time_str}) | 7g: {p7_int}%"
                 self.tray_antigravity.setToolTip(truncate_tooltip(f"Antigravity {pool_lbl}", stxt))
+                self._act_ag_summary.setText(f"🔵 Antigravity ({pool_lbl}): {stxt}")
+                self._act_ag_summary.setVisible(True)
         else:
             self.tray_antigravity.hide()
             self.tray_partner.hide()
+            self._act_ag_summary.setVisible(False)
+
+        if self._linux_hover_sensor is not None:
+            self._linux_hover_sensor.update_sensor_geometry()
 
 
 # Alias for architectural clarity
