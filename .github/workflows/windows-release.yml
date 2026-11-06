@@ -1,0 +1,51 @@
+name: Build & Attach Windows Release Assets
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to build and upload Windows binaries to (e.g. v2.1.9)"
+        required: true
+        default: "v2.1.9"
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    name: Build Windows Setup & Portable EXE
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies & PyInstaller
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e . pyinstaller
+
+      - name: Build Windows Executable, Inno Setup Wizard & Release ZIP
+        run: |
+          python packaging/build_windows.py
+
+      - name: Upload Windows Binaries to GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: pwsh
+        run: |
+          $tag = if ("${{ github.event.inputs.tag }}" -ne "") { "${{ github.event.inputs.tag }}" } else { "${{ github.ref_name }}" }
+          Write-Host "Uploading Windows assets to release $tag..."
+          $files = Get-ChildItem -Path "dist\ClaudeUsageWidget*" -File
+          foreach ($f in $files) {
+            Write-Host " -> $($f.FullName)"
+            gh release upload $tag $f.FullName --clobber
+          }
