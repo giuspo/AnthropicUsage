@@ -55,9 +55,9 @@ class AntigravityApiClient:
         headers = {
             "Authorization": f"Bearer {auth.access_token}",
             "Content-Type": "application/json",
-            "User-Agent": "Antigravity/1.2.13 (Windows)",
-            "X-Client-Version": "1.2.13",
-            "X-Goog-Api-Client": "antigravity/1.2.13",
+            "User-Agent": "antigravity/1.5.2 (aidev_client; os_type=linux; arch=amd64; cl=1015175089)",
+            "X-Client-Version": "1.5.2",
+            "X-Goog-Api-Client": "antigravity/1.5.2",
         }
 
         try:
@@ -145,6 +145,7 @@ class AntigravityApiClient:
         # 1. Parse Groups from retrieveUserQuotaSummary
         if quota_summary and "groups" in quota_summary:
             for grp in quota_summary.get("groups", []):
+                g_name = (grp.get("displayName") or "").lower()
                 buckets = grp.get("buckets", [])
                 for b in buckets:
                     w = b.get("window", "")
@@ -154,9 +155,11 @@ class AntigravityApiClient:
 
                     win = self._build_usage_window(util_pct, reset_str)
 
-                    # Check if bucket belongs to partner pool (3p) or gemini
-                    bid = b.get("bucketId", "")
-                    if "3p" in bid or "partner" in bid or "claude" in grp.get("displayName", "").lower():
+                    # Distinguish Gemini 4 Argon, Partner (Claude/GPT 3p), and Gemini Models
+                    bid = (b.get("bucketId") or "").lower()
+                    if "argon" in bid or "argon" in g_name:
+                        snap.gemini_argon_7d = win
+                    elif "3p" in bid or "partner" in bid or "claude" in g_name:
                         if w == "5h":
                             snap.partner_5h = win
                         elif w == "weekly":
@@ -173,10 +176,10 @@ class AntigravityApiClient:
 
         if user_quota and "buckets" in user_quota:
             for b in user_quota.get("buckets", []):
-                mid = b.get("modelId", "")
+                mid = (b.get("modelId") or "").lower()
                 rem_frac = b.get("remainingFraction")
                 rst = b.get("resetTime")
-                if rem_frac is not None and ("gemini" in mid or "chat_" in mid):
+                if rem_frac is not None and "gemini" in mid and "argon" not in mid:
                     util_pct = round((1.0 - max(0.0, min(1.0, float(rem_frac)))) * 100.0, 1)
                     gemini_utils_5h.append(util_pct)
                     if rst:
@@ -187,9 +190,11 @@ class AntigravityApiClient:
             partner_models_map: dict[str, PartnerModelQuota] = {}
 
             for mid, mdata in models_dict.items():
-                dname = mdata.get("displayName", mid)
-                provider = str(mdata.get("modelProvider", ""))
-                qinfo = mdata.get("quotaInfo", {})
+                if mid.startswith("chat_") or mid.startswith("tab_"):
+                    continue
+                dname = mdata.get("displayName") or mid
+                provider = str(mdata.get("modelProvider") or "")
+                qinfo = mdata.get("quotaInfo") or {}
 
                 rem_frac = qinfo.get("remainingFraction")
                 if rem_frac is None:
@@ -199,14 +204,26 @@ class AntigravityApiClient:
                 util_pct = round((1.0 - max(0.0, min(1.0, rem_val))) * 100.0, 1)
                 reset_time_str = qinfo.get("resetTime")
 
-                if provider == "MODEL_PROVIDER_GOOGLE":
-                    gemini_utils_5h.append(util_pct)
-                    if reset_time_str:
-                        gemini_resets.append(reset_time_str)
+                if provider == "MODEL_PROVIDER_GOOGLE" or "gemini" in mid.lower():
+                    if "argon" in mid.lower():
+                        # Argon Medium/Low uses the dedicated Argon weekly limit
+                        if "high" not in mid.lower():
+                            argon_win = self._build_usage_window(util_pct, reset_time_str)
+                            if snap.gemini_argon_7d is None or util_pct > snap.gemini_argon_7d.utilization_pct:
+                                snap.gemini_argon_7d = argon_win
+                    else:
+                        gemini_utils_5h.append(util_pct)
+                        if reset_time_str:
+                            gemini_resets.append(reset_time_str)
                 else:
                     # Partner models (Anthropic, OpenAI)
                     # Group variants by base name (e.g. Claude Sonnet 5.5)
-                    clean_dname = dname.replace(" (Low)", "").replace(" (Medium)", "").replace(" (High)", "")
+                    clean_dname = (
+                        str(dname)
+                        .replace(" (Low)", "")
+                        .replace(" (Medium)", "")
+                        .replace(" (High)", "")
+                    )
                     clean_id = mid.split("-")[0] + "-" + mid.split("-")[1] if "-" in mid else mid
 
                     if clean_dname not in partner_models_map:
@@ -244,8 +261,8 @@ class AntigravityApiClient:
                     friendly_reset_str=snap.partner_models[0].five_hour.friendly_reset_str,
                 )
 
-        # Weekly default fallback (scaled proportionally to 5h consumption)
-        if snap.gemini_7d.utilization_pct == 0.0:
+        # Weekly default fallback (scaled proportionally to 5h consumption) only if not returned by API
+        if snap.gemini_7d.utilization_pct == 0.0 and snap.gemini_7d.resets_at is None:
             weekly_pct = round(snap.gemini_5h.utilization_pct * 0.35, 1) if snap.gemini_5h.utilization_pct > 0.0 else 0.0
             rst_7d = datetime.now(timezone.utc) + timedelta(days=6, hours=1)
             snap.gemini_7d = UsageWindow(
@@ -254,6 +271,35 @@ class AntigravityApiClient:
                 time_remaining_str="6g 1h",
                 friendly_reset_str=f"Reset settimanale tra 6 giorni ({100.0 - weekly_pct:.0f}% rimanente)",
             )
+
+        # Populate structured Gemini models list (including Gemini 4 Argon and Gemini 3.8 Flash)
+        gem_models: list[PartnerModelQuota] = []
+        if snap.gemini_argon_7d is not None:
+            gem_models.append(
+                PartnerModelQuota(
+                    model_id="gemini-4-argon",
+                    display_name="Gemini 4 Argon",
+                    five_hour=snap.gemini_argon_7d,
+                    seven_day=snap.gemini_argon_7d,
+                )
+            )
+        gem_models.append(
+            PartnerModelQuota(
+                model_id="gemini-3.8-flash",
+                display_name="Gemini 3.8 Flash",
+                five_hour=snap.gemini_5h,
+                seven_day=snap.gemini_7d,
+            )
+        )
+        gem_models.append(
+            PartnerModelQuota(
+                model_id="gemini-3.5-flash-lite",
+                display_name="Gemini 3.5 Lite",
+                five_hour=snap.gemini_5h,
+                seven_day=snap.gemini_7d,
+            )
+        )
+        snap.gemini_models = gem_models
 
         return snap
 
@@ -308,10 +354,16 @@ class AntigravityApiClient:
             friendly_reset_str="Oggi alle 22:30 (tra 2h 45m)",
         )
         gem_7d = UsageWindow(
-            utilization_pct=22.0,
+            utilization_pct=27.0,
             resets_at=rst_7d,
-            time_remaining_str="4g 8h",
-            friendly_reset_str="Martedì alle 14:00 (tra 4g 8h)",
+            time_remaining_str="3g 3h",
+            friendly_reset_str="Lunedì alle 21:00 (tra 3g 3h)",
+        )
+        gem_argon_7d = UsageWindow(
+            utilization_pct=65.0,
+            resets_at=rst_7d,
+            time_remaining_str="4g 4h",
+            friendly_reset_str="Martedì alle 22:00 (tra 4g 4h)",
         )
 
         prt_5h = UsageWindow(
@@ -326,6 +378,27 @@ class AntigravityApiClient:
             time_remaining_str="4g 8h",
             friendly_reset_str="Martedì alle 14:00 (tra 4g 8h)",
         )
+
+        gem_models = [
+            PartnerModelQuota(
+                model_id="gemini-4-argon",
+                display_name="Gemini 4 Argon",
+                five_hour=gem_argon_7d,
+                seven_day=gem_argon_7d,
+            ),
+            PartnerModelQuota(
+                model_id="gemini-3.8-flash",
+                display_name="Gemini 3.8 Flash",
+                five_hour=gem_5h,
+                seven_day=gem_7d,
+            ),
+            PartnerModelQuota(
+                model_id="gemini-3.5-flash-lite",
+                display_name="Gemini 3.5 Lite",
+                five_hour=gem_5h,
+                seven_day=gem_7d,
+            ),
+        ]
 
         models = [
             PartnerModelQuota(
@@ -351,6 +424,8 @@ class AntigravityApiClient:
         return AntigravityUsageSnapshot(
             gemini_5h=gem_5h,
             gemini_7d=gem_7d,
+            gemini_argon_7d=gem_argon_7d,
+            gemini_models=gem_models,
             partner_5h=prt_5h,
             partner_7d=prt_7d,
             partner_models=models,

@@ -880,7 +880,11 @@ class TrayController(QSystemTrayIcon):
                 self.tray_antigravity.setIcon(icon_gemini)
                 g5 = int(round(antigravity_snap.gemini_5h.utilization_pct))
                 g7 = int(round(antigravity_snap.gemini_7d.utilization_pct))
-                gtxt = f"5h: {g5}% ({antigravity_snap.gemini_5h.time_remaining_str}) | 7g: {g7}% ({antigravity_snap.gemini_7d.time_remaining_str})"
+                if antigravity_snap.gemini_argon_7d is not None:
+                    ar7 = int(round(antigravity_snap.gemini_argon_7d.utilization_pct))
+                    gtxt = f"5h: {g5}% ({antigravity_snap.gemini_5h.time_remaining_str}) | 7g: {g7}% | Argon: {ar7}%"
+                else:
+                    gtxt = f"5h: {g5}% ({antigravity_snap.gemini_5h.time_remaining_str}) | 7g: {g7}% ({antigravity_snap.gemini_7d.time_remaining_str})"
                 self.tray_antigravity.setToolTip(truncate_tooltip("Antigravity Gemini", gtxt))
                 self._act_ag_summary.setText(f"🔵 Gemini: {gtxt}")
                 self._act_ag_summary.setVisible(True)

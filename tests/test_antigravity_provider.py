@@ -23,7 +23,9 @@ def test_antigravity_mock_snapshot():
     snap = client._generate_mock_snapshot()
     assert isinstance(snap, AntigravityUsageSnapshot)
     assert snap.gemini_5h.utilization_pct == 38.5
-    assert snap.gemini_7d.utilization_pct == 22.0
+    assert snap.gemini_7d.utilization_pct == 27.0
+    assert snap.gemini_argon_7d is not None
+    assert snap.gemini_argon_7d.utilization_pct == 65.0
     assert snap.partner_5h.utilization_pct == 54.0
     assert snap.partner_7d.utilization_pct == 46.5
     assert len(snap.partner_models) == 3
@@ -228,4 +230,94 @@ def test_antigravity_get_agy_bin_discovery():
     assert bin_path == helper_bin
     if bin_path:
         assert Path(bin_path).exists()
+
+
+def test_antigravity_gemini_4_argon_quota_parsing():
+    client = AntigravityApiClient()
+    auth = AuthState(is_valid=True, access_token="test_token")
+
+    fake_summary = {
+        "groups": [
+            {
+                "displayName": "Gemini Models",
+                "buckets": [
+                    {
+                        "bucketId": "gemini-weekly",
+                        "window": "weekly",
+                        "remainingFraction": 0.73,  # 27% used
+                        "resetTime": "2026-11-09T20:15:39Z",
+                    },
+                    {
+                        "bucketId": "gemini-5h",
+                        "window": "5h",
+                        "remainingFraction": 0.71,  # 29% used
+                        "resetTime": "2026-11-06T18:56:27Z",
+                    },
+                ],
+            },
+            {
+                "displayName": "Claude and GPT models",
+                "buckets": [
+                    {
+                        "bucketId": "3p-weekly",
+                        "window": "weekly",
+                        "remainingFraction": 1.0,  # 0% used
+                    },
+                    {
+                        "bucketId": "3p-5h",
+                        "window": "5h",
+                        "remainingFraction": 1.0,  # 0% used
+                    },
+                ],
+            },
+            {
+                "displayName": "Gemini 4 Argon",
+                "buckets": [
+                    {
+                        "bucketId": "gemini-argon-wtu-weekly",
+                        "window": "weekly",
+                        "remainingFraction": 0.35,  # 65% used (35% left)
+                        "resetTime": "2026-11-10T21:09:19Z",
+                    },
+                ],
+            },
+        ]
+    }
+
+    fake_models = {
+        "models": {
+            "chat_23310": {
+                "displayName": None,
+                "quotaInfo": {"remainingFraction": 1.0},
+            },
+            "gemini-4-argon-medium": {
+                "displayName": "Gemini 4 Argon (Medium)",
+                "modelProvider": "MODEL_PROVIDER_GOOGLE",
+                "quotaInfo": {
+                    "remainingFraction": 0.35,
+                    "resetTime": "2026-11-10T21:09:19Z",
+                },
+            },
+            "gemini-3.8-flash": {
+                "displayName": "Gemini 3.8 Flash",
+                "modelProvider": "MODEL_PROVIDER_GOOGLE",
+                "quotaInfo": {
+                    "remainingFraction": 0.71,
+                    "resetTime": "2026-11-06T18:56:27Z",
+                },
+            },
+        }
+    }
+
+    snap = client._parse_responses(auth, fake_summary, fake_models)
+
+    assert snap.is_offline is False
+    assert snap.gemini_5h.utilization_pct == 29.0
+    assert snap.gemini_7d.utilization_pct == 27.0
+    assert snap.gemini_argon_7d is not None
+    assert snap.gemini_argon_7d.utilization_pct == 65.0
+    assert snap.partner_5h.utilization_pct == 0.0
+    assert snap.partner_7d.utilization_pct == 0.0
+    assert any("Argon" in m.display_name for m in snap.gemini_models)
+
 

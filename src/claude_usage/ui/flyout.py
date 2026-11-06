@@ -618,7 +618,7 @@ class MicroFlyoutWindow(QWidget):
         gauge_layout.addWidget(self.lbl_agy_reset_timer)
         vbox.addWidget(gauge_container)
 
-        # 4. Dual row overview card
+        # 4. Dual/Triple row overview card
         self.agy_dual_card = QFrame(self.subview_antigravity)
         self.agy_dual_card.setObjectName("SectionCard")
         dual_layout = QVBoxLayout(self.agy_dual_card)
@@ -632,14 +632,18 @@ class MicroFlyoutWindow(QWidget):
         self.lbl_agy_row_7d = QLabel("📅 Settimanale: 0%", self.agy_dual_card)
         self.lbl_agy_row_7d.setStyleSheet("color: #D4D4D8; font-size: 11px;")
         dual_layout.addWidget(self.lbl_agy_row_7d)
+
+        self.lbl_agy_row_argon = QLabel("🧪 Gemini 4 Argon (7g): 0%", self.agy_dual_card)
+        self.lbl_agy_row_argon.setStyleSheet("color: #93C5FD; font-size: 11px; font-weight: 600;")
+        dual_layout.addWidget(self.lbl_agy_row_argon)
         vbox.addWidget(self.agy_dual_card)
 
         # 5. Bottom 3 Metric Cards Grid
         cards_layout = QHBoxLayout()
         cards_layout.setSpacing(6)
-        self.card_agy_c1 = self._create_metric_card("Gemini Flash", "0%", "modello")
-        self.card_agy_c2 = self._create_metric_card("Gemini Pro", "0%", "modello")
-        self.card_agy_c3 = self._create_metric_card("AI Credits", "Inclusi", "Google One")
+        self.card_agy_c1 = self._create_metric_card("Gemini 4 Argon", "0%", "quota 7g")
+        self.card_agy_c2 = self._create_metric_card("Gemini 3.8 Flash", "0%", "quota 5h")
+        self.card_agy_c3 = self._create_metric_card("Gemini 3.5 Lite", "0%", "quota 5h")
         cards_layout.addWidget(self.card_agy_c1)
         cards_layout.addWidget(self.card_agy_c2)
         cards_layout.addWidget(self.card_agy_c3)
@@ -1396,7 +1400,12 @@ class MicroFlyoutWindow(QWidget):
 
         ag_max = max(ag.primary_gemini_utilization, ag.primary_partner_utilization)
         self.lbl_ag_pct.setText(f"{int(round(ag_max))}%")
-        self.lbl_ag_gem.setText(f"✨ Gemini 5h: {int(round(ag.gemini_5h.utilization_pct))}% ({ag.gemini_5h.time_remaining_str})")
+        if ag.gemini_argon_7d is not None:
+            self.lbl_ag_gem.setText(
+                f"✨ Gemini 5h: {int(round(ag.gemini_5h.utilization_pct))}% • Argon 7g: {int(round(ag.gemini_argon_7d.utilization_pct))}%"
+            )
+        else:
+            self.lbl_ag_gem.setText(f"✨ Gemini 5h: {int(round(ag.gemini_5h.utilization_pct))}% ({ag.gemini_5h.time_remaining_str})")
         self.lbl_ag_prt.setText(f"🤝 Partner 5h: {int(round(ag.partner_5h.utilization_pct))}% ({ag.partner_5h.time_remaining_str})")
         self.lbl_ag_reset.setText(ag.gemini_5h.friendly_reset_str)
 
@@ -1450,35 +1459,45 @@ class MicroFlyoutWindow(QWidget):
             self.antigravity_gauge.set_percentage(pct)
             self.lbl_agy_reset_timer.setText(ag.partner_5h.friendly_reset_str)
 
+            p5_used = int(round(ag.partner_5h.utilization_pct))
+            p5_left = max(0, 100 - p5_used)
+            p7_used = int(round(ag.partner_7d.utilization_pct))
+            p7_left = max(0, 100 - p7_used)
+
             self.lbl_agy_row_5h.setText(
-                f"⏱️ Sessione Partner 5h: {int(round(ag.partner_5h.utilization_pct))}%  (Reset in {ag.partner_5h.time_remaining_str})"
+                f"⏱️ Sessione Partner 5h: {p5_used}%  ({p5_left}% left • Reset in {ag.partner_5h.time_remaining_str})"
             )
             self.lbl_agy_row_7d.setText(
-                f"📅 Settimanale Partner: {int(round(ag.partner_7d.utilization_pct))}%  (Reset in {ag.partner_7d.time_remaining_str})"
+                f"📅 Settimanale Partner: {p7_used}%  ({p7_left}% left • Reset in {ag.partner_7d.time_remaining_str})"
             )
+            self.lbl_agy_row_argon.setVisible(False)
 
             p_models = ag.partner_models or []
             m1 = next((m for m in p_models if "sonnet" in m.model_id.lower()), p_models[0] if len(p_models) > 0 else None)
             m2 = next((m for m in p_models if "opus" in m.model_id.lower()), p_models[1] if len(p_models) > 1 else None)
             m3 = next((m for m in p_models if "gpt" in m.model_id.lower()), p_models[2] if len(p_models) > 2 else None)
 
+            m1_used = int(round(m1.five_hour.utilization_pct)) if m1 else p5_used
+            m2_used = int(round(m2.five_hour.utilization_pct)) if m2 else p5_used
+            m3_used = int(round(m3.five_hour.utilization_pct)) if m3 else p5_used
+
             self._set_metric_card(
                 self.card_agy_c1,
-                m1.display_name if m1 else "Claude Sonnet",
-                f"{int(round(m1.five_hour.utilization_pct))}%" if m1 else "0%",
-                "quota 5h",
+                m1.display_name if m1 else "Claude Sonnet 5.5",
+                f"{m1_used}%",
+                f"{max(0, 100 - m1_used)}% left • 5h",
             )
             self._set_metric_card(
                 self.card_agy_c2,
-                m2.display_name if m2 else "Claude Opus",
-                f"{int(round(m2.five_hour.utilization_pct))}%" if m2 else "0%",
-                "quota 5h",
+                m2.display_name if m2 else "Claude Opus 5.5",
+                f"{m2_used}%",
+                f"{max(0, 100 - m2_used)}% left • 5h",
             )
             self._set_metric_card(
                 self.card_agy_c3,
-                m3.display_name if m3 else "GPT-OSS",
-                f"{int(round(m3.five_hour.utilization_pct))}%" if m3 else "0%",
-                "quota 5h",
+                m3.display_name if m3 else "GPT-OSS 120B",
+                f"{m3_used}%",
+                f"{max(0, 100 - m3_used)}% left • 5h",
             )
         else:
             self.antigravity_gauge.color_theme = "blue"
@@ -1486,16 +1505,53 @@ class MicroFlyoutWindow(QWidget):
             self.antigravity_gauge.set_percentage(pct)
             self.lbl_agy_reset_timer.setText(ag.gemini_5h.friendly_reset_str)
 
+            g5_used = int(round(ag.gemini_5h.utilization_pct))
+            g5_left = max(0, 100 - g5_used)
+            g7_used = int(round(ag.gemini_7d.utilization_pct))
+            g7_left = max(0, 100 - g7_used)
+
             self.lbl_agy_row_5h.setText(
-                f"⏱️ Sessione Gemini 5h: {int(round(ag.gemini_5h.utilization_pct))}%  (Reset in {ag.gemini_5h.time_remaining_str})"
+                f"⏱️ Sessione Gemini 5h: {g5_used}%  ({g5_left}% left • Reset in {ag.gemini_5h.time_remaining_str})"
             )
             self.lbl_agy_row_7d.setText(
-                f"📅 Settimanale Gemini: {int(round(ag.gemini_7d.utilization_pct))}%  (Reset in {ag.gemini_7d.time_remaining_str})"
+                f"📅 Settimanale Gemini: {g7_used}%  ({g7_left}% left • Reset in {ag.gemini_7d.time_remaining_str})"
             )
 
-            self._set_metric_card(self.card_agy_c1, "Gemini Flash", f"{int(round(ag.gemini_5h.utilization_pct))}%", "modello Google")
-            self._set_metric_card(self.card_agy_c2, "Gemini Pro", f"{int(round(ag.gemini_5h.utilization_pct))}%", "modello Google")
-            self._set_metric_card(self.card_agy_c3, "AI Credits", "Inclusi", "Google One AI")
+            argon_win = ag.gemini_argon_7d
+            if argon_win is not None:
+                ar_used = int(round(argon_win.utilization_pct))
+                ar_left = max(0, 100 - ar_used)
+                self.lbl_agy_row_argon.setText(
+                    f"🧪 Gemini 4 Argon (7g): {ar_used}%  ({ar_left}% left • Reset in {argon_win.time_remaining_str})"
+                )
+                self.lbl_agy_row_argon.setVisible(True)
+                self._set_metric_card(
+                    self.card_agy_c1,
+                    "Gemini 4 Argon",
+                    f"{ar_used}%",
+                    f"{ar_left}% left • {argon_win.time_remaining_str}",
+                )
+            else:
+                self.lbl_agy_row_argon.setVisible(False)
+                self._set_metric_card(
+                    self.card_agy_c1,
+                    "Gemini 4 Argon",
+                    f"{g7_used}%",
+                    f"{g7_left}% left • 7g",
+                )
+
+            self._set_metric_card(
+                self.card_agy_c2,
+                "Gemini 3.8 Flash",
+                f"{g5_used}%",
+                f"{g5_left}% left • 5h",
+            )
+            self._set_metric_card(
+                self.card_agy_c3,
+                "Gemini 3.5 Lite",
+                f"{g5_used}%",
+                f"{g7_left}% left • 7g",
+            )
 
     def _set_metric_card(self, card: QFrame, title: str, val: str, sub: str) -> None:
         lbl_title = card.findChild(QLabel, "title")

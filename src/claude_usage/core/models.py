@@ -229,6 +229,8 @@ class PartnerModelQuota:
 class AntigravityUsageSnapshot:
     gemini_5h: UsageWindow = field(default_factory=UsageWindow)
     gemini_7d: UsageWindow = field(default_factory=UsageWindow)
+    gemini_argon_7d: Optional[UsageWindow] = None
+    gemini_models: list[PartnerModelQuota] = field(default_factory=list)
     partner_5h: UsageWindow = field(default_factory=UsageWindow)
     partner_7d: UsageWindow = field(default_factory=UsageWindow)
     partner_models: list[PartnerModelQuota] = field(default_factory=list)
