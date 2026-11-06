@@ -3,7 +3,6 @@
 <div align="center">
 
 ![License: GPLv3](https://img.shields.io/badge/License-GPLv3-blue.svg?style=for-the-badge)
-![Version](https://img.shields.io/badge/Version-v2.1.0-0284C7?style=for-the-badge)
 ![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)
 ![Platform](https://img.shields.io/badge/Platform-Windows%2011%20%7C%20Linux%20GNOME-0078D4?style=for-the-badge&logo=windows&logoColor=white)
 ![GUI](https://img.shields.io/badge/UI-PyQt6%20%7C%20Fluent%20Dark-41CD52?style=for-the-badge&logo=qt&logoColor=white)
@@ -12,7 +11,7 @@
 
 *Monitor Anthropic Claude Code and Google Antigravity (Google AI Pro) live quotas side-by-side without interrupting your terminal workflow or leaving your IDE.*
 
-[Download Installer (v2.1.0)](https://github.com/giuspo/AnthropicUsage/releases) • [Features](#-key-features) • [Installation](#-installation--setup) • [Architecture](#-architecture--privacy) • [License](#-license--credits)
+[📦 Download Latest Release](https://github.com/giuspo/AnthropicUsage/releases/latest) • [✨ Key Features](#-key-features) • [📸 Visual Showcase](#-visual-showcase) • [🚀 Installation & Setup](#-installation--setup) • [🏗️ Architecture](#-architecture--privacy) • [📄 License](#-license--credits)
 
 </div>
 
@@ -27,10 +26,10 @@
 | <img src="docs/images/flyout_overview.png" width="370" alt="Flyout Overview"/> | <img src="docs/images/flyout_antigravity.png" width="370" alt="Antigravity Breakdown"/> |
 | *Real-time dual-engine comparison: Claude 5h/7d vs. Google Antigravity.* | *Granular breakdown for Gemini Pool + all Partner models (Sonnet, Opus, GPT).* |
 
-| ✴️ Claude Code & Thinking Tokens | ⚙️ Responsive Anti-Clipping Settings |
+| ✴️ Claude Code & Thinking Tokens | ⚙️ Responsive Settings & Internationalization |
 | :---: | :---: |
 | <img src="docs/images/flyout_claude.png" width="370" alt="Claude Code Detail"/> | <img src="docs/images/flyout_settings.png" width="370" alt="Settings & 1-Click Login"/> |
-| *Semi-circular radial gauge, 5h/7d selector, and Thinking token metrics.* | *Fluent scroll area, interactive service cards, and 1-Click OAuth login.* |
+| *Semi-circular radial gauge, 5h/7d selector, and Thinking token metrics.* | *Fluent scroll area, multi-language selector grid, and 1-Click OAuth login.* |
 
 </div>
 
@@ -48,19 +47,19 @@ The widget renders pixel-perfect, 4x supersampled vector icons directly on your 
 
 ---
 
-## 🌟 Why Developers Love It
-
-Tired of suddenly hitting your 5-hour quota limit in the middle of a complex coding turn? Need to balance your workloads between **Claude Code** and **Google Antigravity / Google AI Pro**?
+## 🌟 Key Features
 
 * **⚡ Zero Context Switching**: Never interrupt your focus to check quota dashboards or type status commands. One glance at your taskbar gives you exact utilization and countdown to reset.
 * **🤝 True Multi-Provider Intelligence**: Monitor **Anthropic Claude Code** and **Google Antigravity** concurrently, or toggle either service off with a single click.
+* **🌍 Full Internationalization (i18n)**: Native UI translation across 8 major languages (Italian, English, Spanish, French, German, Japanese, Simplified Chinese, Russian) with automatic OS language detection.
 * **💎 Granular Partner Models Breakdown**: Antigravity isn't just Gemini. View dedicated, real-time percentages for **Claude Sonnet 3.5/5.5**, **Claude Opus**, and **GPT-OSS** models hosted on Google infrastructure.
 * **🎯 1, 2, or 3 Twin Tray Icons**: 
   - *Single Unified Icon*: Pick whether to display Gemini Pool, Partner Pool, or Max Consumption.
   - *Dual Antigravity Icons (3rd Taskbar Icon)*: Display separate dedicated icons for Gemini (Google Azure `#4285F4`) and Partner Models (Emerald `#10B981`).
+* **🐧 First-Class Linux & Windows Support**: Full compatibility with **Windows 11** taskbars and **Linux (GNOME, Wayland, X11)** with self-healing tray docking, multi-monitor anchoring, and native SecretService keyring integration.
 * **🧠 Deep Thinking & Token Metrics**: Tracks Input, Output, and **Extended Thinking tokens** plus cache-hit percentages extracted directly from session transcripts.
 * **🚨 Smart Alerts & Burn Rate Guard**: Detects rapid token consumption spikes (`+15% in < 10m` during loops) and sends native OS toast notifications at your chosen thresholds (50%, 75%, 80%, 90%, 95%, 100%) with smart anti-spam hysteresis.
-* **🔒 100% Local & Zero-Config OAuth**: Direct integration with Windows Credential Manager and GNOME Secret Service. No API proxies, no telemetry, no credentials ever leaving your machine.
+* **🔒 100% Local & Zero-Config OAuth**: Direct integration with Windows Credential Manager and Linux Secret Service. No API proxies, no telemetry, no credentials ever leaving your machine.
 
 ---
 
@@ -69,52 +68,45 @@ Tired of suddenly hitting your 5-hour quota limit in the middle of a complex cod
 | Option | Description |
 | :--- | :--- |
 | **Active Services** | Toggle `✴️ Claude Code` and `✨ Google Antigravity` independently. |
+| **Language Selection** | Automatic OS detection or explicit choice among 8 supported languages. |
 | **Antigravity Tray Mode** | Choose between `1 Icon (Unified)` or `2 Icons (Gemini + 3rd Partner Icon)`. |
 | **Unified Pool Selector** | When using 1 icon for Antigravity, select: `Gemini Pool`, `Partner Models`, or `🔥 Max Consumption`. |
 | **1-Click Authentication** | Automatic zero-config detection from `gemini:antigravity` and `claude auth`, or 1-click browser OAuth login. |
 | **Tray Icon Styles** | Switch instantly between **⭕ Concentric Rings**, **🌗 Split Arcs**, or **📊 Dual Bars**. |
 | **Threshold Alerts** | Interactive pill chips for `50%`, `75%`, `80%`, `90%`, `95%`, `100%`, plus custom comma-separated percentages. |
 | **Fast Burn Alert** | Proactive warning if an agent gets trapped in an automated loop consuming `>15%` within minutes. |
-| **System Autostart** | 1-click Windows Registry autostart (`HKCU\...\Run`) and Linux XDG autostart. |
+| **System Autostart** | 1-click system autostart integration for Windows and Linux. |
 | **Simulation Mode (Mock)** | Test all themes, gauge states, and alerts without spending quota. |
 
 ---
 
 ## 🚀 Installation & Setup
 
-### Method 1: Standard Windows Setup Wizard (Recommended)
+Pre-built packages and installers for all supported operating systems are available directly on the **[GitHub Releases Page](https://github.com/giuspo/AnthropicUsage/releases/latest)**.
 
-1. Download **[`ClaudeUsageWidget-Setup-v2.1.0.exe`](https://github.com/giuspo/AnthropicUsage/releases)** (or v2.0.1).
-2. Run the wizard (available in English & Italian).
-3. Select optional Desktop shortcut and Startup integration.
-4. The widget integrates with Windows Settings (*Installed Apps*), Start Menu, and System Tray.
-5. In-place upgrade seamlessly preserves your existing configuration and tokens.
+### Windows
 
-### Method 2: Portable Standalone Executable (Zero Install)
+You can choose between two convenient options from the latest release:
 
-1. Download **[`ClaudeUsageWidget-v2.1.0-Windows.zip`](https://github.com/giuspo/AnthropicUsage/releases)** or **`ClaudeUsageWidget.exe`**.
-2. Extract anywhere (e.g. USB flash drive or portable tools folder).
-3. Double-click to launch directly into the system tray.
+* **Setup Wizard (Installer `.exe`)**: Recommended for most users. Includes optional desktop shortcuts, Start Menu integration, and clean uninstallation support.
+* **Portable Standalone (`.zip` / `.exe`)**: Zero installation required. Simply extract and launch directly into your system tray.
 
-### Method 3: Ubuntu / Debian Linux Installation
+### Linux (Ubuntu / Debian / GNOME)
 
-#### Option A: Native Debian/Ubuntu Package (.deb)
-```bash
-sudo dpkg -i dist/claude-usage-widget_2.1.0_amd64.deb
-# Or double-click in Ubuntu App Center / GNOME Software
-```
+Packages and install scripts are provided for Linux environments:
 
-#### Option B: 1-Click User-Space Installer (No root required)
-```bash
-# Installs standalone binary to ~/.local/bin and sets up XDG launcher + autostart
-./packaging/install.sh
-
-# To uninstall:
-./packaging/uninstall.sh
-```
-
-#### Option C: Portable Linux Tarball (.tar.gz)
-Extract `claude-usage-widget-v2.1.0-Linux-x86_64.tar.gz` and run `./claude-usage-widget` directly.
+* **Debian / Ubuntu Package (`.deb`)**:
+  Download the latest `.deb` asset and install via terminal or package manager:
+  ```bash
+  sudo dpkg -i claude-usage-widget_*_amd64.deb
+  ```
+* **User-Space Setup Script (No root required)**:
+  Run the included script from the repository or tarball to configure user launcher and autostart:
+  ```bash
+  ./packaging/install.sh
+  ```
+* **Portable Tarball (`.tar.gz`)**:
+  Extract the archive and execute the binary directly.
 
 ---
 
@@ -145,7 +137,6 @@ uv run python main.py --mock
 
 ```bash
 uv run pytest -v
-# Output: 26 passed in ~0.95s
 ```
 
 ### Build Binaries Locally
@@ -153,18 +144,13 @@ uv run pytest -v
 **On Windows:**
 ```bash
 uv run python packaging/build_windows.py
-# Or double click: build_setup.bat
-# Generates PyInstaller standalone exe, Inno Setup wizard, and release zip in dist/
+# Or run: build_setup.bat
 ```
 
-**On Linux (Ubuntu / GNOME):**
+**On Linux:**
 ```bash
 ./build_setup.sh
-# Or: python3 packaging/build_linux.py
-# Generates:
-# - Standalone ELF binary: dist/claude-usage-widget
-# - Debian/Ubuntu package: dist/claude-usage-widget_2.1.0_amd64.deb
-# - Portable release tarball: dist/claude-usage-widget-v2.1.0-Linux-x86_64.tar.gz
+# Or run: python3 packaging/build_linux.py
 ```
 
 ---
@@ -188,12 +174,13 @@ AnthropicUsage/
 │   │   └── notifier.py             # DesktopNotifier with anti-spam hysteresis & burn detector
 │   └── ui/
 │       ├── theme.py                # Color palettes (Claude, Gemini Azure, Partner Emerald)
+│       ├── i18n.py                 # Multi-language dictionary and runtime translator
 │       ├── icon_renderer.py        # 4x supersampled Pillow vector engine
 │       ├── tray.py                 # TrayCoordinator managing 1, 2, or 3 dynamic tray icons
 │       ├── flyout.py               # Borderless micro-flyout (Overview, Claude, Antigravity, Settings)
 │       └── positioner.py           # Multi-monitor DPI-aware taskbar anchoring
 ├── docs/images/                    # High-resolution screenshots & UI showcase
-└── tests/                          # 26 automated unit & integration tests
+└── tests/                          # Automated unit & integration tests
 ```
 
 ### 🔐 Security & Privacy First
