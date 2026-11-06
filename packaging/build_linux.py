@@ -198,9 +198,9 @@ exit 0
     prerm_content = """#!/bin/sh
 set -e
 
-# Stop running instances cleanly
-pkill -f claude-usage-widget || true
-pkill -f ClaudeUsageWidget || true
+# Stop running binary instances cleanly (target exact /usr/bin path to avoid killing dpkg/apt/prerm itself)
+pkill -f "/usr/bin/claude-usage-widget" || true
+pkill -f "/usr/bin/ClaudeUsageWidget" || true
 
 exit 0
 """
