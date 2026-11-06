@@ -16,6 +16,7 @@ from claude_usage.autostart import cleanup_duplicate_autostart
 from claude_usage.config import load_config
 from claude_usage.core.engine import UsageFusionEngine
 from claude_usage.core.single_instance import SingleInstanceManager
+from claude_usage.i18n import set_language
 from claude_usage.ui.flyout import MicroFlyoutWindow
 from claude_usage.ui.icon_renderer import IconRenderer
 from claude_usage.ui.tray import TrayController
@@ -77,6 +78,7 @@ def main() -> None:
     asyncio.set_event_loop(loop)
 
     config = load_config()
+    set_language(getattr(config, "language", "auto"))
     if "--mock" in sys.argv:
         config.mock_mode = True
         logger.info("Mock simulation mode activated via CLI flag '--mock'")

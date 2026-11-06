@@ -18,6 +18,7 @@ from claude_usage.core.models import (
     CompositeUsageSnapshot,
     UsageSnapshot,
 )
+from claude_usage.i18n import register_language_listener, t
 from claude_usage.ui.flyout import MicroFlyoutWindow
 from claude_usage.ui.icon_renderer import IconRenderer
 from claude_usage.ui.positioner import WindowPositioner
@@ -332,6 +333,8 @@ class TrayController(QSystemTrayIcon):
         self.tray_partner.setIcon(initial_partner)
         self.tray_partner.setToolTip("Antigravity Partner: Inizializzazione...")
 
+        register_language_listener(self.retranslate_menu)
+
     def _create_menu(self) -> QMenu:
         menu = _DarkContextMenu()
         menu.setStyleSheet(
@@ -368,41 +371,54 @@ class TrayController(QSystemTrayIcon):
         act_app_info.setEnabled(False)
         menu.addAction(act_app_info)
 
-        self._act_claude_summary = QAction("🟠 Claude: Inizializzazione...", menu)
+        self._act_claude_summary = QAction(t("tray.init_claude"), menu)
         self._act_claude_summary.setEnabled(False)
         menu.addAction(self._act_claude_summary)
 
-        self._act_ag_summary = QAction("🔵 Antigravity: Inizializzazione...", menu)
+        self._act_ag_summary = QAction(t("tray.init_agy"), menu)
         self._act_ag_summary.setEnabled(False)
         menu.addAction(self._act_ag_summary)
 
         menu.addSeparator()
 
-        act_show = QAction("📊 Mostra Widget", menu)
-        act_show.triggered.connect(lambda: self.show_flyout())
-        menu.addAction(act_show)
+        self._act_show = QAction(t("tray.show_widget"), menu)
+        self._act_show.triggered.connect(lambda: self.show_flyout())
+        menu.addAction(self._act_show)
 
-        act_refresh = QAction("↻ Aggiorna Adesso", menu)
-        act_refresh.triggered.connect(self.refresh_requested.emit)
-        menu.addAction(act_refresh)
-
-        menu.addSeparator()
-
-        act_settings = QAction("⚙️ Impostazioni", menu)
-        act_settings.triggered.connect(self._open_settings)
-        menu.addAction(act_settings)
-
-        act_help = QAction(f"ℹ️ Informazioni & Help (v{__version__} - giuspo)", menu)
-        act_help.triggered.connect(self._open_help)
-        menu.addAction(act_help)
+        self._act_refresh = QAction(t("tray.refresh_now"), menu)
+        self._act_refresh.triggered.connect(self.refresh_requested.emit)
+        menu.addAction(self._act_refresh)
 
         menu.addSeparator()
 
-        act_quit = QAction("❌ Esci", menu)
-        act_quit.triggered.connect(self.quit_requested.emit)
-        menu.addAction(act_quit)
+        self._act_settings = QAction(t("tray.settings"), menu)
+        self._act_settings.triggered.connect(self._open_settings)
+        menu.addAction(self._act_settings)
+
+        self._act_help = QAction(t("tray.help", version=__version__), menu)
+        self._act_help.triggered.connect(self._open_help)
+        menu.addAction(self._act_help)
+
+        menu.addSeparator()
+
+        self._act_quit = QAction(t("tray.quit"), menu)
+        self._act_quit.triggered.connect(self.quit_requested.emit)
+        menu.addAction(self._act_quit)
 
         return menu
+
+    def retranslate_menu(self, _lang: str = "") -> None:
+        """Dynamically retranslates context menu items on language change."""
+        if hasattr(self, "_act_show"):
+            self._act_show.setText(t("tray.show_widget"))
+        if hasattr(self, "_act_refresh"):
+            self._act_refresh.setText(t("tray.refresh_now"))
+        if hasattr(self, "_act_settings"):
+            self._act_settings.setText(t("tray.settings"))
+        if hasattr(self, "_act_help"):
+            self._act_help.setText(t("tray.help", version=__version__))
+        if hasattr(self, "_act_quit"):
+            self._act_quit.setText(t("tray.quit"))
 
     def _show_tray_icon(self, tray: QSystemTrayIcon, wm_class: str) -> None:
         """Shows a tray icon, using X11 QSystemTrayIconSys on Linux/GNOME for direct left/right click."""

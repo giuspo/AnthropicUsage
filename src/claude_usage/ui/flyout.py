@@ -38,6 +38,14 @@ from claude_usage.core.models import (
     PartnerModelQuota,
     UsageSnapshot,
 )
+from claude_usage.i18n import (
+    SUPPORTED_LANGUAGES,
+    get_current_language,
+    get_language_setting,
+    register_language_listener,
+    set_language,
+    t,
+)
 from claude_usage.ui.icon_renderer import IconRenderer
 from claude_usage.ui.positioner import WindowPositioner
 from claude_usage.ui.theme import COLOR_CRITICAL, COLOR_WARNING
@@ -142,6 +150,7 @@ class MicroFlyoutWindow(QWidget):
 
         self.installEventFilter(self)
         self._init_ui()
+        register_language_listener(self.retranslate_ui)
 
     def eventFilter(self, obj: QObject, event: QEvent) -> bool:
         if obj == self and event.type() == QEvent.Type.WindowDeactivate:
@@ -281,7 +290,7 @@ class MicroFlyoutWindow(QWidget):
         self.btn_refresh = QPushButton("↻", self.card)
         self.btn_refresh.setFixedSize(28, 28)
         self.btn_refresh.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_refresh.setToolTip("Aggiorna quote adesso")
+        self.btn_refresh.setToolTip(t("flyout.refresh_tooltip"))
         self.btn_refresh.setStyleSheet(
             """
             QPushButton {
@@ -316,9 +325,9 @@ class MicroFlyoutWindow(QWidget):
         nav_layout.setContentsMargins(4, 4, 4, 4)
         nav_layout.setSpacing(4)
 
-        self.btn_nav_metrics = QPushButton("📊 Metriche", nav_frame)
-        self.btn_nav_settings = QPushButton("⚙️ Impostazioni", nav_frame)
-        self.btn_nav_help = QPushButton("ℹ️ Guida & Info", nav_frame)
+        self.btn_nav_metrics = QPushButton(t("nav.metrics"), nav_frame)
+        self.btn_nav_settings = QPushButton(t("nav.settings"), nav_frame)
+        self.btn_nav_help = QPushButton(t("nav.help"), nav_frame)
 
         for btn in (self.btn_nav_metrics, self.btn_nav_settings, self.btn_nav_help):
             btn.setFixedHeight(30)
@@ -351,9 +360,9 @@ class MicroFlyoutWindow(QWidget):
         subbar_layout.setContentsMargins(4, 3, 4, 3)
         subbar_layout.setSpacing(4)
 
-        self.btn_sub_overview = QPushButton("⚖️ Panoramica", self.subbar_frame)
-        self.btn_sub_claude = QPushButton("✴️ Claude Code", self.subbar_frame)
-        self.btn_sub_antigravity = QPushButton("✨ Antigravity", self.subbar_frame)
+        self.btn_sub_overview = QPushButton(t("sub.overview"), self.subbar_frame)
+        self.btn_sub_claude = QPushButton(t("sub.claude"), self.subbar_frame)
+        self.btn_sub_antigravity = QPushButton(t("sub.antigravity"), self.subbar_frame)
 
         for btn in (self.btn_sub_overview, self.btn_sub_claude, self.btn_sub_antigravity):
             btn.setFixedHeight(24)
@@ -398,9 +407,9 @@ class MicroFlyoutWindow(QWidget):
         cl_layout.setContentsMargins(10, 10, 10, 10)
         cl_layout.setSpacing(6)
 
-        lbl_cl_head = QLabel("✴️ Claude Code", self.card_comp_claude)
-        lbl_cl_head.setStyleSheet("color: #F87171; font-weight: 700; font-size: 12px;")
-        cl_layout.addWidget(lbl_cl_head)
+        self.lbl_cl_head = QLabel(t("overview.claude_head"), self.card_comp_claude)
+        self.lbl_cl_head.setStyleSheet("color: #F87171; font-weight: 700; font-size: 12px;")
+        cl_layout.addWidget(self.lbl_cl_head)
 
         self.lbl_cl_pct = QLabel("0%", self.card_comp_claude)
         self.lbl_cl_pct.setStyleSheet("font-size: 26px; font-weight: 800; color: #38BDF8;")
@@ -419,12 +428,12 @@ class MicroFlyoutWindow(QWidget):
         cl_layout.addWidget(self.lbl_cl_reset)
         cl_layout.addStretch()
 
-        btn_go_claude = QPushButton("Dettaglio Claude ↗", self.card_comp_claude)
-        btn_go_claude.setFixedHeight(24)
-        btn_go_claude.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_go_claude.setStyleSheet("font-size: 10px; background-color: #222226; color: #38BDF8; border-radius: 5px;")
-        btn_go_claude.clicked.connect(lambda: self._select_metrics_subview("claude"))
-        cl_layout.addWidget(btn_go_claude)
+        self.btn_go_claude = QPushButton(t("overview.btn_go_claude"), self.card_comp_claude)
+        self.btn_go_claude.setFixedHeight(24)
+        self.btn_go_claude.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_go_claude.setStyleSheet("font-size: 10px; background-color: #222226; color: #38BDF8; border-radius: 5px;")
+        self.btn_go_claude.clicked.connect(lambda: self._select_metrics_subview("claude"))
+        cl_layout.addWidget(self.btn_go_claude)
 
         # Card Right: Google Antigravity
         self.card_comp_agy = QFrame(self.subview_overview)
@@ -433,9 +442,9 @@ class MicroFlyoutWindow(QWidget):
         ag_layout.setContentsMargins(10, 10, 10, 10)
         ag_layout.setSpacing(6)
 
-        lbl_ag_head = QLabel("✨ Antigravity", self.card_comp_agy)
-        lbl_ag_head.setStyleSheet("color: #60A5FA; font-weight: 700; font-size: 12px;")
-        ag_layout.addWidget(lbl_ag_head)
+        self.lbl_ag_head = QLabel(t("overview.agy_head"), self.card_comp_agy)
+        self.lbl_ag_head.setStyleSheet("color: #60A5FA; font-weight: 700; font-size: 12px;")
+        ag_layout.addWidget(self.lbl_ag_head)
 
         self.lbl_ag_pct = QLabel("0%", self.card_comp_agy)
         self.lbl_ag_pct.setStyleSheet("font-size: 26px; font-weight: 800; color: #60A5FA;")
@@ -454,12 +463,12 @@ class MicroFlyoutWindow(QWidget):
         ag_layout.addWidget(self.lbl_ag_reset)
         ag_layout.addStretch()
 
-        btn_go_agy = QPushButton("Dettaglio Google ↗", self.card_comp_agy)
-        btn_go_agy.setFixedHeight(24)
-        btn_go_agy.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_go_agy.setStyleSheet("font-size: 10px; background-color: #222226; color: #60A5FA; border-radius: 5px;")
-        btn_go_agy.clicked.connect(lambda: self._select_metrics_subview("antigravity"))
-        ag_layout.addWidget(btn_go_agy)
+        self.btn_go_agy = QPushButton(t("overview.btn_go_agy"), self.card_comp_agy)
+        self.btn_go_agy.setFixedHeight(24)
+        self.btn_go_agy.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_go_agy.setStyleSheet("font-size: 10px; background-color: #222226; color: #60A5FA; border-radius: 5px;")
+        self.btn_go_agy.clicked.connect(lambda: self._select_metrics_subview("antigravity"))
+        ag_layout.addWidget(self.btn_go_agy)
 
         hbox_cards.addWidget(self.card_comp_claude, stretch=1)
         hbox_cards.addWidget(self.card_comp_agy, stretch=1)
@@ -472,9 +481,9 @@ class MicroFlyoutWindow(QWidget):
         sum_layout.setContentsMargins(12, 10, 12, 10)
         sum_layout.setSpacing(4)
 
-        lbl_sum_title = QLabel("💡 Stato di Utilizzo Parallelo", card_summary)
-        lbl_sum_title.setStyleSheet("font-size: 11px; font-weight: 700; color: #FFFFFF;")
-        sum_layout.addWidget(lbl_sum_title)
+        self.lbl_sum_title = QLabel(t("overview.parallel_title"), card_summary)
+        self.lbl_sum_title.setStyleSheet("font-size: 11px; font-weight: 700; color: #FFFFFF;")
+        sum_layout.addWidget(self.lbl_sum_title)
 
         self.lbl_sum_desc = QLabel(
             "Entrambi i servizi sono monitorati contemporaneamente sulla barra delle attività.",
@@ -721,9 +730,9 @@ class MicroFlyoutWindow(QWidget):
         layout_srv.setContentsMargins(12, 10, 12, 10)
         layout_srv.setSpacing(8)
 
-        lbl_srv_title = QLabel("🔌 Servizi Attivi & Icone Taskbar (v{__version__})", card_services)
-        lbl_srv_title.setStyleSheet("font-size: 12px; font-weight: 700; color: #FFFFFF;")
-        layout_srv.addWidget(lbl_srv_title)
+        self.lbl_srv_title = QLabel(t("settings.title", version=__version__), card_services)
+        self.lbl_srv_title.setStyleSheet("font-size: 12px; font-weight: 700; color: #FFFFFF;")
+        layout_srv.addWidget(self.lbl_srv_title)
 
         # Service toggle buttons (clean interactive cards)
         row_toggles = QHBoxLayout()
@@ -757,16 +766,16 @@ class MicroFlyoutWindow(QWidget):
         layout_agy_mode.setContentsMargins(0, 2, 0, 0)
         layout_agy_mode.setSpacing(6)
 
-        lbl_agy_mode = QLabel("Visualizzazione Taskbar per Antigravity:", self.agy_mode_container)
-        lbl_agy_mode.setStyleSheet("color: #A1A1AA; font-size: 10px; font-weight: 600;")
-        layout_agy_mode.addWidget(lbl_agy_mode)
+        self.lbl_agy_mode = QLabel(t("settings.agy_mode_lbl"), self.agy_mode_container)
+        self.lbl_agy_mode.setStyleSheet("color: #A1A1AA; font-size: 10px; font-weight: 600;")
+        layout_agy_mode.addWidget(self.lbl_agy_mode)
 
         row_mode_btns = QHBoxLayout()
         row_mode_btns.setSpacing(6)
 
         self._agy_tray_mode = getattr(self.config, "antigravity_tray_mode", "single_icon")
-        self.btn_tray_single = QPushButton("1 Icona (Unificata)", self.agy_mode_container)
-        self.btn_tray_split = QPushButton("2 Icone (+ Partner)", self.agy_mode_container)
+        self.btn_tray_single = QPushButton(t("settings.tray_single"), self.agy_mode_container)
+        self.btn_tray_split = QPushButton(t("settings.tray_split"), self.agy_mode_container)
 
         for b in (self.btn_tray_single, self.btn_tray_split):
             b.setFixedHeight(26)
@@ -787,17 +796,17 @@ class MicroFlyoutWindow(QWidget):
         layout_pool_box.setContentsMargins(8, 7, 8, 7)
         layout_pool_box.setSpacing(5)
 
-        lbl_which_pool = QLabel("Pool visualizzato nell'icona singola:", self.pool_select_container)
-        lbl_which_pool.setStyleSheet("color: #71717A; font-size: 10px; font-weight: 500; border: none; background: transparent;")
-        layout_pool_box.addWidget(lbl_which_pool)
+        self.lbl_which_pool = QLabel(t("settings.which_pool_lbl"), self.pool_select_container)
+        self.lbl_which_pool.setStyleSheet("color: #71717A; font-size: 10px; font-weight: 500; border: none; background: transparent;")
+        layout_pool_box.addWidget(self.lbl_which_pool)
 
         row_pools = QHBoxLayout()
         row_pools.setSpacing(5)
 
         self._agy_single_pool = getattr(self.config, "antigravity_single_pool", "gemini")
-        self.btn_pool_gemini = QPushButton("✨ Gemini", self.pool_select_container)
-        self.btn_pool_partner = QPushButton("🤝 Partner", self.pool_select_container)
-        self.btn_pool_max = QPushButton("🔥 Max Consumo", self.pool_select_container)
+        self.btn_pool_gemini = QPushButton(t("settings.pool_gemini"), self.pool_select_container)
+        self.btn_pool_partner = QPushButton(t("settings.pool_partner"), self.pool_select_container)
+        self.btn_pool_max = QPushButton(t("settings.pool_max"), self.pool_select_container)
 
         for pb in (self.btn_pool_gemini, self.btn_pool_partner, self.btn_pool_max):
             pb.setFixedHeight(24)
@@ -832,9 +841,9 @@ class MicroFlyoutWindow(QWidget):
         layout_auth.setContentsMargins(12, 10, 12, 10)
         layout_auth.setSpacing(6)
 
-        lbl_auth_title = QLabel("🔐 Account Connessi", card_auth)
-        lbl_auth_title.setStyleSheet("font-size: 12px; font-weight: 700; color: #FFFFFF;")
-        layout_auth.addWidget(lbl_auth_title)
+        self.lbl_auth_title = QLabel(t("settings.auth_title"), card_auth)
+        self.lbl_auth_title.setStyleSheet("font-size: 12px; font-weight: 700; color: #FFFFFF;")
+        layout_auth.addWidget(self.lbl_auth_title)
 
         # Sub-selector for account tab
         row_acc_tabs = QHBoxLayout()
@@ -887,12 +896,12 @@ class MicroFlyoutWindow(QWidget):
         layout_notif.setSpacing(6)
 
         notif_hdr = QHBoxLayout()
-        lbl_notif_sec = QLabel("🔔 Notifiche & Soglie Alert", card_notif)
-        lbl_notif_sec.setStyleSheet("font-size: 12px; font-weight: 700; color: #FFFFFF;")
-        notif_hdr.addWidget(lbl_notif_sec)
+        self.lbl_notif_sec = QLabel(t("settings.notif_title"), card_notif)
+        self.lbl_notif_sec.setStyleSheet("font-size: 12px; font-weight: 700; color: #FFFFFF;")
+        notif_hdr.addWidget(self.lbl_notif_sec)
         notif_hdr.addStretch()
 
-        self.chk_notif = QCheckBox("Notifiche Push", card_notif)
+        self.chk_notif = QCheckBox(t("settings.chk_notif"), card_notif)
         self.chk_notif.setChecked(self.config.notifications_enabled)
         self.chk_notif.setCursor(Qt.CursorShape.PointingHandCursor)
         self.chk_notif.setStyleSheet("color: #E4E4E7; font-size: 11px;")
@@ -914,9 +923,9 @@ class MicroFlyoutWindow(QWidget):
 
         thresh_input_row = QHBoxLayout()
         thresh_input_row.setSpacing(8)
-        lbl_tin = QLabel("Soglie attive (%):", card_notif)
-        lbl_tin.setStyleSheet("color: #A1A1AA; font-size: 11px;")
-        thresh_input_row.addWidget(lbl_tin)
+        self.lbl_tin = QLabel(t("settings.thresholds_lbl"), card_notif)
+        self.lbl_tin.setStyleSheet("color: #A1A1AA; font-size: 11px;")
+        thresh_input_row.addWidget(self.lbl_tin)
 
         self.txt_thresholds = QLineEdit(card_notif)
         self.txt_thresholds.setFixedHeight(24)
@@ -927,7 +936,7 @@ class MicroFlyoutWindow(QWidget):
         self.txt_thresholds.textChanged.connect(self._sync_threshold_chips)
         self._sync_threshold_chips()
 
-        self.chk_burn_rate = QCheckBox("🔥 Alert Consumo Rapido (+15% in <10m / Loop)", card_notif)
+        self.chk_burn_rate = QCheckBox(t("settings.burn_rate_chk"), card_notif)
         self.chk_burn_rate.setChecked(self.config.burn_rate_alert_enabled)
         self.chk_burn_rate.setCursor(Qt.CursorShape.PointingHandCursor)
         self.chk_burn_rate.setStyleSheet("color: #E4E4E7; font-size: 11px;")
@@ -941,16 +950,16 @@ class MicroFlyoutWindow(QWidget):
         layout_st.setContentsMargins(12, 10, 12, 10)
         layout_st.setSpacing(6)
 
-        lbl_st_title = QLabel("🎨 Stile Icone Taskbar & Sistema", card_style)
-        lbl_st_title.setStyleSheet("font-size: 12px; font-weight: 700; color: #FFFFFF;")
-        layout_st.addWidget(lbl_st_title)
+        self.lbl_st_title = QLabel(t("settings.style_title"), card_style)
+        self.lbl_st_title.setStyleSheet("font-size: 12px; font-weight: 700; color: #FFFFFF;")
+        layout_st.addWidget(self.lbl_st_title)
 
         hbox_styles = QHBoxLayout()
         hbox_styles.setSpacing(5)
         self._current_tray_style = getattr(self.config, "tray_icon_style", "concentric")
-        self.btn_style_concentric = QPushButton("⭕ Anelli\n(5h / 7g)", card_style)
-        self.btn_style_split = QPushButton("🌗 Archi Split\n(Sx 5h / Dx 7g)", card_style)
-        self.btn_style_bars = QPushButton("📊 Doppie Barre\n(Colonne 5h / 7g)", card_style)
+        self.btn_style_concentric = QPushButton(t("settings.style_concentric"), card_style)
+        self.btn_style_split = QPushButton(t("settings.style_split"), card_style)
+        self.btn_style_bars = QPushButton(t("settings.style_bars"), card_style)
 
         for sb in (self.btn_style_concentric, self.btn_style_split, self.btn_style_bars):
             sb.setFixedHeight(34)
@@ -968,19 +977,13 @@ class MicroFlyoutWindow(QWidget):
 
         # System row
         sys_row = QHBoxLayout()
-        if sys.platform == "win32":
-            autostart_label = "🚀 Avvia con Windows"
-        elif sys.platform == "darwin":
-            autostart_label = "🚀 Avvia con macOS"
-        else:
-            autostart_label = "🚀 Avvia con Linux"
-        self.chk_autostart = QCheckBox(autostart_label, card_style)
+        self.chk_autostart = QCheckBox(t("settings.autostart"), card_style)
         self.chk_autostart.setChecked(is_autostart_enabled())
         self.chk_autostart.setCursor(Qt.CursorShape.PointingHandCursor)
         self.chk_autostart.setStyleSheet("color: #E4E4E7; font-size: 11px;")
         sys_row.addWidget(self.chk_autostart)
 
-        self.chk_mock = QCheckBox("🧪 Simulazione Demo (Mock)", card_style)
+        self.chk_mock = QCheckBox(t("settings.mock"), card_style)
         self.chk_mock.setChecked(self.config.mock_mode)
         self.chk_mock.setCursor(Qt.CursorShape.PointingHandCursor)
         self.chk_mock.setStyleSheet("color: #A1A1AA; font-size: 11px;")
@@ -989,13 +992,47 @@ class MicroFlyoutWindow(QWidget):
         layout_st.addLayout(sys_row)
 
         scroll_layout.addWidget(card_style)
+
+        # --- CARD 5: LINGUA DELL'INTERFACCIA ---
+        card_lang = QFrame(scroll_content)
+        card_lang.setObjectName("SectionCard")
+        layout_lang = QVBoxLayout(card_lang)
+        layout_lang.setContentsMargins(12, 10, 12, 10)
+        layout_lang.setSpacing(6)
+
+        self.lbl_lang_title = QLabel(t("settings.lang_title"), card_lang)
+        self.lbl_lang_title.setStyleSheet("font-size: 12px; font-weight: 700; color: #FFFFFF;")
+        layout_lang.addWidget(self.lbl_lang_title)
+
+        hbox_lang = QHBoxLayout()
+        hbox_lang.setSpacing(5)
+        self._selected_language = getattr(self.config, "language", "auto")
+        self.btn_lang_auto = QPushButton("🌐 Auto", card_lang)
+        self.btn_lang_it = QPushButton("🇮🇹 Italiano", card_lang)
+        self.btn_lang_en = QPushButton("🇬🇧 English", card_lang)
+
+        for lb in (self.btn_lang_auto, self.btn_lang_it, self.btn_lang_en):
+            lb.setFixedHeight(30)
+            lb.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        self.btn_lang_auto.clicked.connect(lambda: self._select_language("auto"))
+        self.btn_lang_it.clicked.connect(lambda: self._select_language("it"))
+        self.btn_lang_en.clicked.connect(lambda: self._select_language("en"))
+
+        hbox_lang.addWidget(self.btn_lang_auto, stretch=1)
+        hbox_lang.addWidget(self.btn_lang_it, stretch=1)
+        hbox_lang.addWidget(self.btn_lang_en, stretch=1)
+        layout_lang.addLayout(hbox_lang)
+        self._update_language_buttons()
+        scroll_layout.addWidget(card_lang)
+
         scroll_layout.addStretch()
 
         scroll_area.setWidget(scroll_content)
         vbox_settings.addWidget(scroll_area, stretch=1)
 
         # Pinned save button at the bottom of settings page
-        self.btn_save_settings = QPushButton("💾 Salva Impostazioni", self.settings_view)
+        self.btn_save_settings = QPushButton(t("settings.save"), self.settings_view)
         self.btn_save_settings.setFixedHeight(34)
         self.btn_save_settings.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_save_settings.setStyleSheet(
@@ -1031,7 +1068,7 @@ class MicroFlyoutWindow(QWidget):
                 "QPushButton:hover { background-color: #381E1B; }"
             )
         else:
-            self.btn_toggle_claude.setText("✴️ Claude Code  (Inattivo)")
+            self.btn_toggle_claude.setText(f"✴️ Claude Code  ({t('settings.inactive')})")
             self.btn_toggle_claude.setStyleSheet(
                 "QPushButton { background-color: #18181B; color: #71717A; border: 1px solid #27272A; border-radius: 6px; font-weight: 500; font-size: 11px; } "
                 "QPushButton:hover { background-color: #222226; color: #A1A1AA; }"
@@ -1044,7 +1081,7 @@ class MicroFlyoutWindow(QWidget):
                 "QPushButton:hover { background-color: #1A2B47; }"
             )
         else:
-            self.btn_toggle_antigravity.setText("✨ Antigravity  (Inattivo)")
+            self.btn_toggle_antigravity.setText(f"✨ Antigravity  ({t('settings.inactive')})")
             self.btn_toggle_antigravity.setStyleSheet(
                 "QPushButton { background-color: #18181B; color: #71717A; border: 1px solid #27272A; border-radius: 6px; font-weight: 500; font-size: 11px; } "
                 "QPushButton:hover { background-color: #222226; color: #A1A1AA; }"
@@ -1078,6 +1115,133 @@ class MicroFlyoutWindow(QWidget):
         self.btn_pool_partner.setStyleSheet(chip_active if self._agy_single_pool == "partner" else chip_inactive)
         self.btn_pool_max.setStyleSheet(chip_active if self._agy_single_pool == "max_used" else chip_inactive)
 
+    def _select_language(self, lang: str) -> None:
+        self._selected_language = lang
+        self.config.language = lang
+        set_language(lang)
+        self._update_language_buttons()
+        self.retranslate_ui()
+
+    def _update_language_buttons(self) -> None:
+        current = getattr(self, "_selected_language", "auto")
+        active_css = "QPushButton { background-color: #2563EB; color: #FFFFFF; border-radius: 5px; font-weight: 700; font-size: 11px; border: 1px solid #3B82F6; }"
+        inactive_css = "QPushButton { background-color: #1E1E22; color: #A1A1AA; border-radius: 5px; font-size: 11px; border: 1px solid #2E2E34; } QPushButton:hover { background-color: #2A2A30; }"
+
+        if hasattr(self, "btn_lang_auto"):
+            self.btn_lang_auto.setStyleSheet(active_css if current == "auto" else inactive_css)
+        if hasattr(self, "btn_lang_it"):
+            self.btn_lang_it.setStyleSheet(active_css if current == "it" else inactive_css)
+        if hasattr(self, "btn_lang_en"):
+            self.btn_lang_en.setStyleSheet(active_css if current == "en" else inactive_css)
+
+    def retranslate_ui(self, _lang: str = "") -> None:
+        """Dynamically retranslates all widgets in the flyout."""
+        # Bottom navigation
+        if hasattr(self, "btn_nav_metrics"):
+            self.btn_nav_metrics.setText(t("nav.metrics"))
+        if hasattr(self, "btn_nav_settings"):
+            self.btn_nav_settings.setText(t("nav.settings"))
+        if hasattr(self, "btn_nav_help"):
+            self.btn_nav_help.setText(t("nav.help"))
+        if hasattr(self, "btn_refresh"):
+            self.btn_refresh.setToolTip(t("flyout.refresh_tooltip"))
+
+        # Sub navigation bar
+        if hasattr(self, "btn_sub_overview"):
+            self.btn_sub_overview.setText(t("sub.overview"))
+        if hasattr(self, "btn_sub_claude"):
+            self.btn_sub_claude.setText(t("sub.claude"))
+        if hasattr(self, "btn_sub_antigravity"):
+            self.btn_sub_antigravity.setText(t("sub.antigravity"))
+
+        # Overview comparative cards
+        if hasattr(self, "lbl_cl_head"):
+            self.lbl_cl_head.setText(t("overview.claude_head"))
+        if hasattr(self, "lbl_ag_head"):
+            self.lbl_ag_head.setText(t("overview.agy_head"))
+        if hasattr(self, "btn_go_claude"):
+            self.btn_go_claude.setText(t("overview.btn_go_claude"))
+        if hasattr(self, "btn_go_agy"):
+            self.btn_go_agy.setText(t("overview.btn_go_agy"))
+        if hasattr(self, "lbl_sum_title"):
+            self.lbl_sum_title.setText(t("overview.parallel_title"))
+
+        # Claude detail sub-tabs
+        if hasattr(self, "btn_tab_5h"):
+            self.btn_tab_5h.setText(t("claude.tab_5h"))
+        if hasattr(self, "btn_tab_7d"):
+            self.btn_tab_7d.setText(t("claude.tab_7d"))
+
+        # Antigravity detail sub-tabs
+        if hasattr(self, "btn_agy_gemini"):
+            self.btn_agy_gemini.setText(t("agy.tab_gemini"))
+        if hasattr(self, "btn_agy_partner"):
+            self.btn_agy_partner.setText(t("agy.tab_partner"))
+
+        # Settings page
+        if hasattr(self, "lbl_srv_title"):
+            self.lbl_srv_title.setText(t("settings.title", version=__version__))
+        if hasattr(self, "lbl_agy_mode"):
+            self.lbl_agy_mode.setText(t("settings.agy_mode_lbl"))
+        if hasattr(self, "btn_tray_single"):
+            self.btn_tray_single.setText(t("settings.tray_single"))
+        if hasattr(self, "btn_tray_split"):
+            self.btn_tray_split.setText(t("settings.tray_split"))
+        if hasattr(self, "lbl_which_pool"):
+            self.lbl_which_pool.setText(t("settings.which_pool_lbl"))
+        if hasattr(self, "btn_pool_gemini"):
+            self.btn_pool_gemini.setText(t("settings.pool_gemini"))
+        if hasattr(self, "btn_pool_partner"):
+            self.btn_pool_partner.setText(t("settings.pool_partner"))
+        if hasattr(self, "btn_pool_max"):
+            self.btn_pool_max.setText(t("settings.pool_max"))
+        if hasattr(self, "lbl_split_hint"):
+            self.lbl_split_hint.setText(t("settings.split_hint"))
+        if hasattr(self, "lbl_auth_title"):
+            self.lbl_auth_title.setText(t("settings.auth_title"))
+        if hasattr(self, "btn_logout"):
+            self.btn_logout.setText(t("settings.btn_logout"))
+        if hasattr(self, "lbl_notif_sec"):
+            self.lbl_notif_sec.setText(t("settings.notif_title"))
+        if hasattr(self, "chk_notif"):
+            self.chk_notif.setText(t("settings.chk_notif"))
+        if hasattr(self, "lbl_tin"):
+            self.lbl_tin.setText(t("settings.thresholds_lbl"))
+        if hasattr(self, "chk_burn_rate"):
+            self.chk_burn_rate.setText(t("settings.burn_rate_chk"))
+        if hasattr(self, "lbl_st_title"):
+            self.lbl_st_title.setText(t("settings.style_title"))
+        if hasattr(self, "btn_style_concentric"):
+            self.btn_style_concentric.setText(t("settings.style_concentric"))
+        if hasattr(self, "btn_style_split"):
+            self.btn_style_split.setText(t("settings.style_split"))
+        if hasattr(self, "btn_style_bars"):
+            self.btn_style_bars.setText(t("settings.style_bars"))
+        if hasattr(self, "lbl_lang_title"):
+            self.lbl_lang_title.setText(t("settings.lang_title"))
+        if hasattr(self, "chk_autostart"):
+            self.chk_autostart.setText(t("settings.autostart"))
+        if hasattr(self, "chk_mock"):
+            self.chk_mock.setText(t("settings.mock"))
+        if hasattr(self, "btn_save_settings"):
+            self.btn_save_settings.setText(t("settings.save"))
+
+        # Help page
+        if hasattr(self, "lbl_creator"):
+            self.lbl_creator.setText(t("help.creator"))
+        if hasattr(self, "lbl_license"):
+            self.lbl_license.setText(t("help.license"))
+        if hasattr(self, "lbl_p_title"):
+            self.lbl_p_title.setText(t("help.purpose_title"))
+        if hasattr(self, "lbl_p_body"):
+            self.lbl_p_body.setText(t("help.purpose_body"))
+
+        self._switch_auth_view(getattr(self, "_active_auth_tab", "claude"))
+        self._update_service_toggle_buttons()
+        self._update_language_buttons()
+        if hasattr(self, "_last_composite") and self._last_composite:
+            self._update_composite_view(self._last_composite)
+
     def _switch_auth_view(self, auth_type: str) -> None:
         self._active_auth_tab = auth_type
         active_css = "QPushButton { background-color: #27272A; color: #FFFFFF; border-radius: 5px; font-weight: 600; font-size: 11px; border: 1px solid #3F3F46; }"
@@ -1087,10 +1251,10 @@ class MicroFlyoutWindow(QWidget):
         self.btn_acc_google.setStyleSheet(active_css if auth_type == "google" else inactive_css)
 
         if auth_type == "google":
-            self.btn_login.setText("🔑 Accedi con Google AI (1-Click)")
+            self.btn_login.setText(t("settings.btn_login_google"))
             self.btn_logout.setVisible(True)
         else:
-            self.btn_login.setText("🔑 Accedi con Claude (1-Click)")
+            self.btn_login.setText(t("settings.btn_login_claude"))
             self.btn_logout.setVisible(True)
 
     def _handle_login_click(self) -> None:
@@ -1154,9 +1318,9 @@ class MicroFlyoutWindow(QWidget):
         top_hero_row.addWidget(lbl_ver_badge)
         hero_layout.addLayout(top_hero_row)
 
-        lbl_creator = QLabel("Ideato e sviluppato da <b>giuspo</b> 🚀", hero_card)
-        lbl_creator.setStyleSheet("color: #38BDF8; font-size: 11px;")
-        hero_layout.addWidget(lbl_creator)
+        self.lbl_creator = QLabel(t("help.creator"), hero_card)
+        self.lbl_creator.setStyleSheet("color: #38BDF8; font-size: 11px;")
+        hero_layout.addWidget(self.lbl_creator)
 
         lbl_schema = QLabel(
             f"📦 <b>Versione {__version__} Multi-Provider</b> &nbsp;•&nbsp; <span style='color:#94A3B8;'>Schema: Major.Minor.Compilation</span>",
@@ -1165,9 +1329,9 @@ class MicroFlyoutWindow(QWidget):
         lbl_schema.setStyleSheet("color: #E2E8F0; font-size: 10px;")
         hero_layout.addWidget(lbl_schema)
 
-        lbl_license = QLabel("🛡️ Licenza: GNU GPLv3 (Copyleft Forte)", hero_card)
-        lbl_license.setStyleSheet("color: #94A3B8; font-size: 10px;")
-        hero_layout.addWidget(lbl_license)
+        self.lbl_license = QLabel(t("help.license"), hero_card)
+        self.lbl_license.setStyleSheet("color: #94A3B8; font-size: 10px;")
+        hero_layout.addWidget(self.lbl_license)
         vbox_help.addWidget(hero_card)
 
         # Purpose card
@@ -1177,19 +1341,14 @@ class MicroFlyoutWindow(QWidget):
         p_layout.setContentsMargins(10, 8, 10, 8)
         p_layout.setSpacing(4)
 
-        lbl_p_title = QLabel("🎯 Scopo dell'Applicazione Multi-Provider", purpose_card)
-        lbl_p_title.setStyleSheet("font-size: 11px; font-weight: 700; color: #FFFFFF;")
-        p_layout.addWidget(lbl_p_title)
+        self.lbl_p_title = QLabel(t("help.purpose_title"), purpose_card)
+        self.lbl_p_title.setStyleSheet("font-size: 11px; font-weight: 700; color: #FFFFFF;")
+        p_layout.addWidget(self.lbl_p_title)
 
-        lbl_p_body = QLabel(
-            "Monitora in tempo reale dalla barra delle attività le quote d'uso sia di <b>Claude Code (Anthropic)</b> "
-            "sia di <b>Google Antigravity (Google AI Pro)</b>, inclusi i modelli Gemini e i modelli Partner (Claude Sonnet/Opus, GPT-OSS). "
-            "Puoi visualizzare le icone affiancate o scegliere solo uno dei due servizi.",
-            purpose_card,
-        )
-        lbl_p_body.setWordWrap(True)
-        lbl_p_body.setStyleSheet("color: #A1A1AA; font-size: 10px;")
-        p_layout.addWidget(lbl_p_body)
+        self.lbl_p_body = QLabel(t("help.purpose_body"), purpose_card)
+        self.lbl_p_body.setWordWrap(True)
+        self.lbl_p_body.setStyleSheet("color: #A1A1AA; font-size: 10px;")
+        p_layout.addWidget(self.lbl_p_body)
         vbox_help.addWidget(purpose_card)
 
         vbox_help.addStretch()
@@ -1454,6 +1613,8 @@ class MicroFlyoutWindow(QWidget):
         self.config.burn_rate_alert_enabled = self.chk_burn_rate.isChecked()
         self.config.mock_mode = self.chk_mock.isChecked()
         self.config.tray_icon_style = getattr(self, "_current_tray_style", "concentric")
+        self.config.language = getattr(self, "_selected_language", "auto")
+        set_language(self.config.language)
 
         new_autostart = self.chk_autostart.isChecked()
         if new_autostart != is_autostart_enabled():
@@ -1465,8 +1626,8 @@ class MicroFlyoutWindow(QWidget):
 
         save_config(self.config)
 
-        self.btn_save_settings.setText("✅ Impostazioni Salvate!")
-        QTimer.singleShot(450, lambda: self.btn_save_settings.setText("💾 Salva Impostazioni"))
+        self.btn_save_settings.setText(t("settings.saved_toast"))
+        QTimer.singleShot(450, lambda: self.btn_save_settings.setText(t("settings.save")))
         QTimer.singleShot(450, lambda: self.switch_page(0))
         self.refresh_requested.emit()
 

@@ -54,6 +54,7 @@ def load_config() -> AppConfig:
             cfg.poll_interval_idle_sec = data.get("poll_interval_idle_sec", 900)
             cfg.autostart_enabled = data.get("autostart_enabled", False)
             cfg.tray_icon_style = data.get("tray_icon_style", "concentric")
+            cfg.language = data.get("language", "auto")
             cfg.mock_mode = data.get("mock_mode", False)
         except Exception:
             pass
@@ -86,6 +87,7 @@ def save_config(cfg: AppConfig) -> None:
         "poll_interval_idle_sec": cfg.poll_interval_idle_sec,
         "autostart_enabled": cfg.autostart_enabled,
         "tray_icon_style": cfg.tray_icon_style,
+        "language": getattr(cfg, "language", "auto"),
         "mock_mode": cfg.mock_mode,
     }
     with open(config_file, "w", encoding="utf-8") as f:

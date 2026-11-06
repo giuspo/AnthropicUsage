@@ -11,5 +11,5 @@ def test_flyout_window_initialization():
     flyout = MicroFlyoutWindow(config=config)
     assert flyout is not None
     assert flyout.chk_autostart is not None
-    assert "Avvia con" in flyout.chk_autostart.text()
+    assert "Esegui all'avvio" in flyout.chk_autostart.text() or "Launch at system startup" in flyout.chk_autostart.text()
     flyout.close()
