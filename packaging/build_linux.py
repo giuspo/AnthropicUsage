@@ -209,6 +209,25 @@ exit 0
         f.write(prerm_content)
     prerm_file.chmod(0o755)
 
+    # 7. Create DEBIAN/postrm script (clean up desktop database and icon cache on remove/purge)
+    postrm_content = """#!/bin/sh
+set -e
+
+if which update-desktop-database >/dev/null 2>&1; then
+    update-desktop-database -q /usr/share/applications || true
+fi
+
+if which gtk-update-icon-cache >/dev/null 2>&1; then
+    gtk-update-icon-cache -q -t -f /usr/share/icons/hicolor || true
+fi
+
+exit 0
+"""
+    postrm_file = debian_control_dir / "postrm"
+    with open(postrm_file, "w", encoding="utf-8") as f:
+        f.write(postrm_content)
+    postrm_file.chmod(0o755)
+
     # Ensure permissions conform strictly to Debian package standards (0755 for dirs, 0755 for scripts/bins, 0644 for files)
     staging_dir.chmod(0o755)
     debian_control_dir.chmod(0o755)
