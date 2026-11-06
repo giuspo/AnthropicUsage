@@ -158,15 +158,22 @@ def test_antigravity_keyring_parsing_both_formats():
     }
     json_str = json.dumps(valid_dict)
 
-    # 1. Plain UTF-8 JSON string
-    with patch("keyring.get_password", return_value=json_str):
+    # 1. Plain UTF-8 JSON string via Windows Credential Manager service name
+    with patch("keyring.get_password", side_effect=lambda s, a: json_str if s == "gemini:antigravity" and a == "antigravity" else None):
         auth = mgr._read_antigravity_keyring()
         assert auth is not None
         assert auth.is_valid is True
         assert auth.access_token == "ya29.test_access_token"
         assert mgr.account_email == "developer@gmail.com"
 
-    # 2. UTF-16LE byte-decoded string simulation
+    # 2. Linux Secret Service / GNOME Keyring ('gemini' service)
+    with patch("keyring.get_password", side_effect=lambda s, a: json_str if s == "gemini" and a == "antigravity" else None):
+        auth_linux = mgr._read_antigravity_keyring()
+        assert auth_linux is not None
+        assert auth_linux.is_valid is True
+        assert auth_linux.access_token == "ya29.test_access_token"
+
+    # 3. UTF-16LE byte-decoded string simulation
     utf16_str = json_str.encode("utf-8").decode("latin-1")
     with patch("keyring.get_password", return_value=json_str):
         auth2 = mgr._read_antigravity_keyring()

@@ -20,7 +20,7 @@ from claude_usage.core.models import AuthProviderType, AuthState
 
 logger = logging.getLogger(__name__)
 
-KEYRING_ANTIGRAVITY_SERVICE = "gemini:antigravity"
+KEYRING_ANTIGRAVITY_SERVICES = ("gemini", "gemini:antigravity", "antigravity")
 KEYRING_ANTIGRAVITY_ACCOUNT = "antigravity"
 
 KEYRING_CUSTOM_SERVICE = "com.anthropic-usage.widget"
@@ -93,7 +93,21 @@ class AntigravityAuthManager:
     def _read_antigravity_keyring(self) -> Optional[AuthState]:
         """Reads OAuth credentials stored by agy / Antigravity CLI in Windows Credential Manager / Secret Service."""
         try:
-            raw = keyring.get_password(KEYRING_ANTIGRAVITY_SERVICE, KEYRING_ANTIGRAVITY_ACCOUNT)
+            raw = None
+            for srv in KEYRING_ANTIGRAVITY_SERVICES:
+                try:
+                    raw = keyring.get_password(srv, KEYRING_ANTIGRAVITY_ACCOUNT)
+                    if raw:
+                        break
+                except Exception:
+                    continue
+
+            if not raw:
+                try:
+                    raw = keyring.get_password("antigravity", "gemini")
+                except Exception:
+                    pass
+
             if not raw:
                 return None
 
@@ -258,7 +272,7 @@ class AntigravityAuthManager:
                         stderr=asyncio.subprocess.PIPE,
                         creationflags=flags,
                     )
-                    await asyncio.wait_for(proc.communicate(), timeout=8.0)
+                    await asyncio.wait_for(proc.communicate(), timeout=30.0)
                     reloaded = self._resolve_credentials()
                     if reloaded and reloaded.is_valid and not reloaded.is_expired():
                         self._current_state = reloaded
@@ -305,15 +319,27 @@ class AntigravityLoginHelper:
                 cmd = f'cmd.exe /c start "Google Antigravity Login" "{agy_bin}" models'
                 cls._active_process = subprocess.Popen(cmd, shell=True)
             else:
-                # Try to launch with a Linux terminal emulator if available
+                # Try to launch with a Linux terminal emulator if available.
+                # Prioritize modern desktop terminals (ptyxis for GNOME 47+, gnome-terminal)
                 terminals = [
-                    ("gnome-terminal", ["gnome-terminal", "--", agy_bin, "models"]),
-                    ("x-terminal-emulator", ["x-terminal-emulator", "-e", f"{agy_bin} models"]),
                     ("ptyxis", ["ptyxis", "--", agy_bin, "models"]),
+                    ("gnome-terminal", ["gnome-terminal", "--", agy_bin, "models"]),
                     ("konsole", ["konsole", "-e", agy_bin, "models"]),
-                    ("xfce4-terminal", ["xfce4-terminal", "-e", f"{agy_bin} models"]),
-                    ("xterm", ["xterm", "-e", f"{agy_bin} models"]),
+                    ("xfce4-terminal", ["xfce4-terminal", "-x", agy_bin, "models"]),
+                    ("xterm", ["xterm", "-e", agy_bin, "models"]),
                 ]
+                # Fallback for generic x-terminal-emulator
+                x_term = shutil.which("x-terminal-emulator")
+                if x_term:
+                    try:
+                        real_name = Path(x_term).resolve().name
+                    except Exception:
+                        real_name = ""
+                    if "ptyxis" in real_name or "gnome-terminal" in real_name:
+                        terminals.append(("x-terminal-emulator", ["x-terminal-emulator", "--", agy_bin, "models"]))
+                    else:
+                        terminals.append(("x-terminal-emulator", ["x-terminal-emulator", "-e", agy_bin, "models"]))
+
                 launched = False
                 for term_name, term_cmd in terminals:
                     if shutil.which(term_name):
