@@ -209,3 +209,16 @@ def test_antigravity_empty_responses_marks_offline():
     snap = client._parse_responses(auth, quota_summary=None, models_data=None, user_quota=None)
     assert snap.is_offline is True
     assert "Offline" in snap.status_label
+
+
+def test_antigravity_get_agy_bin_discovery():
+    from pathlib import Path
+    from claude_usage.core.antigravity_auth import AntigravityAuthManager, AntigravityLoginHelper
+
+    # Test that get_agy_bin returns a string or None, and is consistent between manager and helper
+    bin_path = AntigravityAuthManager.get_agy_bin()
+    helper_bin = AntigravityLoginHelper.get_agy_bin()
+    assert bin_path == helper_bin
+    if bin_path:
+        assert Path(bin_path).exists()
+

@@ -71,7 +71,27 @@ class ClaudeLoginHelper:
                 full_cmd = f'cmd.exe /c start "Claude Code Login" cmd.exe /c "{command_str} || pause"'
                 cls._active_process = subprocess.Popen(full_cmd, shell=True)
             else:
-                cls._active_process = subprocess.Popen(cmd)
+                # Launch via a Linux terminal emulator so user can see output and complete interactive OAuth
+                command_str = " ".join(f'"{c}"' if " " in c else c for c in cmd)
+                terminals = [
+                    ("gnome-terminal", ["gnome-terminal", "--", "bash", "-c", f"{command_str} || read -p 'Press enter to exit'"]),
+                    ("x-terminal-emulator", ["x-terminal-emulator", "-e", f"bash -c '{command_str} || read -p \"Press enter to exit\"'"]),
+                    ("ptyxis", ["ptyxis", "--", "bash", "-c", f"{command_str} || read -p 'Press enter to exit'"]),
+                    ("konsole", ["konsole", "-e", "bash", "-c", f"{command_str} || read -p 'Press enter to exit'"]),
+                    ("xfce4-terminal", ["xfce4-terminal", "-e", f"bash -c '{command_str} || read -p \"Press enter to exit\"'"]),
+                    ("xterm", ["xterm", "-e", f"bash -c '{command_str} || read -p \"Press enter to exit\"'"]),
+                ]
+                launched = False
+                for term_name, term_cmd in terminals:
+                    if shutil.which(term_name):
+                        try:
+                            cls._active_process = subprocess.Popen(term_cmd)
+                            launched = True
+                            break
+                        except Exception:
+                            continue
+                if not launched:
+                    cls._active_process = subprocess.Popen(cmd)
 
             # Poll for credentials file modification
             elapsed = 0

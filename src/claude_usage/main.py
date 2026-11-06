@@ -29,10 +29,15 @@ logger = logging.getLogger("claude_usage")
 def apply_os_quirks() -> None:
     """Configures platform-specific flags for Windows 11 and Linux Wayland."""
     if sys.platform.startswith("linux"):
-        # On Linux Wayland, enforce XWayland (xcb) so frameless flyouts can position accurately
+        # On Linux Wayland, prefer XWayland (xcb) if DISPLAY is available so frameless flyouts position accurately,
+        # otherwise use native Wayland with xcb fallback.
         if os.environ.get("XDG_SESSION_TYPE") == "wayland" and "QT_QPA_PLATFORM" not in os.environ:
-            os.environ["QT_QPA_PLATFORM"] = "xcb"
-            logger.info("Enforced QT_QPA_PLATFORM=xcb for Wayland tray anchoring")
+            if os.environ.get("DISPLAY"):
+                os.environ["QT_QPA_PLATFORM"] = "xcb"
+                logger.info("Enforced QT_QPA_PLATFORM=xcb for Wayland tray anchoring via XWayland")
+            else:
+                os.environ["QT_QPA_PLATFORM"] = "wayland;xcb"
+                logger.info("Configured QT_QPA_PLATFORM=wayland;xcb for Wayland session")
 
     if sys.platform == "win32":
         # Ensure proper AppUserModelID for Windows 11 Toast notifications
@@ -71,6 +76,9 @@ def main() -> None:
     asyncio.set_event_loop(loop)
 
     config = load_config()
+    if "--mock" in sys.argv:
+        config.mock_mode = True
+        logger.info("Mock simulation mode activated via CLI flag '--mock'")
     engine = UsageFusionEngine(config)
     flyout = MicroFlyoutWindow(config)
     tray = TrayController(flyout)

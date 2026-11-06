@@ -217,6 +217,26 @@ class AntigravityAuthManager:
                 pass
         return None
 
+    @classmethod
+    def get_agy_bin(cls) -> Optional[str]:
+        """Discovers the agy CLI binary path across OS standard locations."""
+        cand = shutil.which("agy")
+        if cand:
+            return cand
+
+        # Check ~/.gemini/bin/agy or ~/.gemini/bin/agy.exe
+        gemini_bin = Path.home() / ".gemini" / "bin" / ("agy.exe" if sys.platform == "win32" else "agy")
+        if gemini_bin.exists():
+            return str(gemini_bin)
+
+        # Check Windows LocalAppData
+        if sys.platform == "win32":
+            local_agy = Path.home() / "AppData" / "Local" / "agy" / "bin" / "agy.exe"
+            if local_agy.exists():
+                return str(local_agy)
+
+        return None
+
     async def refresh_if_expired(self) -> AuthState:
         """Checks expiration and triggers silent background refresh via agy CLI or keyring reload."""
         # 1. First reload directly from keyring: if VSCode or user refreshed it, we get the fresh token immediately
@@ -262,14 +282,7 @@ class AntigravityLoginHelper:
 
     @classmethod
     def get_agy_bin(cls) -> Optional[str]:
-        cand = shutil.which("agy")
-        if cand:
-            return cand
-        if sys.platform == "win32":
-            local_agy = Path.home() / "AppData" / "Local" / "agy" / "bin" / "agy.exe"
-            if local_agy.exists():
-                return str(local_agy)
-        return None
+        return AntigravityAuthManager.get_agy_bin()
 
     @classmethod
     async def execute_login(
@@ -292,7 +305,26 @@ class AntigravityLoginHelper:
                 cmd = f'cmd.exe /c start "Google Antigravity Login" "{agy_bin}" models'
                 cls._active_process = subprocess.Popen(cmd, shell=True)
             else:
-                cls._active_process = subprocess.Popen([agy_bin, "models"])
+                # Try to launch with a Linux terminal emulator if available
+                terminals = [
+                    ("gnome-terminal", ["gnome-terminal", "--", agy_bin, "models"]),
+                    ("x-terminal-emulator", ["x-terminal-emulator", "-e", f"{agy_bin} models"]),
+                    ("ptyxis", ["ptyxis", "--", agy_bin, "models"]),
+                    ("konsole", ["konsole", "-e", agy_bin, "models"]),
+                    ("xfce4-terminal", ["xfce4-terminal", "-e", f"{agy_bin} models"]),
+                    ("xterm", ["xterm", "-e", f"{agy_bin} models"]),
+                ]
+                launched = False
+                for term_name, term_cmd in terminals:
+                    if shutil.which(term_name):
+                        try:
+                            cls._active_process = subprocess.Popen(term_cmd)
+                            launched = True
+                            break
+                        except Exception:
+                            continue
+                if not launched:
+                    cls._active_process = subprocess.Popen([agy_bin, "models"])
 
             elapsed = 0
             while elapsed < timeout_seconds:
