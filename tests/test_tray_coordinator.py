@@ -73,3 +73,20 @@ def test_tray_coordinator_multi_icon(qapp):
     assert "Gemini" in tray.tray_antigravity.toolTip()
     assert "Partner" in tray.tray_partner.toolTip()
 
+
+def test_tray_coordinator_on_settings_saved(qapp):
+    config = AppConfig(
+        enable_claude=False,
+        enable_antigravity=True,
+        antigravity_tray_mode="split_partner_icon",
+    )
+    fake_flyout = MagicMock()
+    fake_flyout.config = config
+
+    tray = TrayController(fake_flyout)
+    tray.show = MagicMock()
+
+    tray.on_settings_saved(config)
+    tray.show.assert_called_once()
+
+

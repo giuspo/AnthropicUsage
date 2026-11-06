@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ctypes
 import logging
+from pathlib import Path
 import sys
 from typing import Optional
 
@@ -66,6 +67,39 @@ def _has_x11_system_tray() -> bool:
     except Exception as e:
         logger.debug(f"X11 system tray probe failed: {e}")
         return False
+
+
+def _clear_qpa_wm_class() -> None:
+    """Resets QXcbIntegration::m_wmClass QByteArray so Qt regenerates WM_CLASS from applicationName."""
+    if not sys.platform.startswith("linux"):
+        return
+    candidates: list[Path | str] = []
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        candidates.append(Path(sys._MEIPASS) / "PyQt6" / "Qt6" / "lib" / "libQt6XcbQpa.so.6")
+        candidates.append(Path(sys._MEIPASS) / "libQt6XcbQpa.so.6")
+    try:
+        import PyQt6
+
+        candidates.append(Path(PyQt6.__file__).parent / "Qt6" / "lib" / "libQt6XcbQpa.so.6")
+    except Exception:
+        pass
+    candidates.append("libQt6XcbQpa.so.6")
+
+    for cand in candidates:
+        try:
+            lib = ctypes.CDLL(str(cand))
+            xcb_inst = ctypes.c_uint64.in_dll(lib, "_ZN15QXcbIntegration10m_instanceE").value
+            if xcb_inst:
+                # QByteArray at m_wmClass consists of:
+                # 0x48: d-pointer (ArrayDataPointer)
+                # 0x50: pointer to data characters
+                # 0x58: size (qptrdiff)
+                ctypes.c_uint64.from_address(xcb_inst + 0x48).value = 0
+                ctypes.c_uint64.from_address(xcb_inst + 0x50).value = 0
+                ctypes.c_uint64.from_address(xcb_inst + 0x58).value = 0
+                break
+        except Exception:
+            continue
 
 
 class _LinuxTrayTooltip(QLabel):
@@ -439,14 +473,8 @@ class TrayController(QSystemTrayIcon):
                 # which receives direct Button1 (Trigger) and Button3 (Context) events on Ubuntu GNOME.
                 ctypes.c_uint64.from_address(d_ptr + 0xB0).value = 0
 
-                # Clear QXcbIntegration's cached m_wmClass size so each icon gets a unique WM_CLASS
-                try:
-                    lib_xcb = ctypes.CDLL("libQt6XcbQpa.so.6")
-                    xcb_inst = ctypes.c_uint64.in_dll(lib_xcb, "_ZN15QXcbIntegration10m_instanceE").value
-                    if xcb_inst:
-                        ctypes.c_uint64.from_address(xcb_inst + 0x58).value = 0
-                except Exception as e:
-                    logger.debug(f"Could not reset QXcbIntegration wmClass cache: {e}")
+                # Clear QXcbIntegration cached m_wmClass so each icon receives a distinct WM_CLASS
+                _clear_qpa_wm_class()
 
                 prev_name = QCoreApplication.applicationName()
                 QCoreApplication.setApplicationName(wm_class)
@@ -460,12 +488,13 @@ class TrayController(QSystemTrayIcon):
 
                 sys_ptr = ctypes.c_uint64.from_address(d_ptr + 0xA8).value
                 if sys_ptr:
-                    self._configure_x11_tray_widget(sys_ptr)
+                    self._configure_x11_tray_widget(sys_ptr, wm_class)
             else:
                 if tray is self:
                     super().show()
                 else:
                     tray.show()
+                self._configure_x11_tray_widget(sys_ptr, wm_class)
         except Exception as e:
             logger.debug(f"Fallback to standard tray show ({wm_class}): {e}")
             if tray is self:
@@ -473,8 +502,8 @@ class TrayController(QSystemTrayIcon):
             else:
                 tray.show()
 
-    def _configure_x11_tray_widget(self, sys_ptr: int) -> None:
-        """Configures the X11 QSystemTrayIconSys widget for crisp HiDPI rendering on GNOME Top Bar."""
+    def _configure_x11_tray_widget(self, sys_ptr: int, wm_class: str) -> None:
+        """Configures the X11 QSystemTrayIconSys widget for crisp HiDPI rendering and unique WM_CLASS on GNOME."""
         try:
             w = sip.wrapinstance(sys_ptr, QWidget)
             w.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, False)
@@ -485,11 +514,34 @@ class TrayController(QSystemTrayIcon):
             w.setPalette(pal)
             wid = int(w.winId())
 
-            def _resize_xembed() -> None:
+            class XClassHint(ctypes.Structure):
+                _fields_ = [
+                    ("res_name", ctypes.c_char_p),
+                    ("res_class", ctypes.c_char_p),
+                ]
+
+            def _setup_xembed_properties() -> None:
                 try:
                     x11 = ctypes.CDLL("libX11.so.6")
                     x11.XOpenDisplay.argtypes = [ctypes.c_char_p]
                     x11.XOpenDisplay.restype = ctypes.c_void_p
+                    x11.XSetClassHint.argtypes = [
+                        ctypes.c_void_p,
+                        ctypes.c_ulong,
+                        ctypes.POINTER(XClassHint),
+                    ]
+                    x11.XInternAtom.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_int]
+                    x11.XInternAtom.restype = ctypes.c_ulong
+                    x11.XChangeProperty.argtypes = [
+                        ctypes.c_void_p,
+                        ctypes.c_ulong,
+                        ctypes.c_ulong,
+                        ctypes.c_ulong,
+                        ctypes.c_int,
+                        ctypes.c_int,
+                        ctypes.c_char_p,
+                        ctypes.c_int,
+                    ]
                     x11.XQueryTree.argtypes = [
                         ctypes.c_void_p,
                         ctypes.c_ulong,
@@ -518,6 +570,22 @@ class TrayController(QSystemTrayIcon):
                     dpy = x11.XOpenDisplay(None)
                     if not dpy:
                         return
+
+                    # 1. Enforce unique WM_CLASS per tray icon to prevent GNOME appindicator de-duplication
+                    res_name = wm_class.lower().encode("latin1")
+                    res_class = wm_class.encode("latin1")
+                    hint = XClassHint(res_name=res_name, res_class=res_class)
+                    x11.XSetClassHint(dpy, wid, ctypes.byref(hint))
+
+                    # 2. Set _GTK_APPLICATION_ID and _KDE_NET_WM_DESKTOP_FILE
+                    for prop_name in (b"_GTK_APPLICATION_ID", b"_KDE_NET_WM_DESKTOP_FILE"):
+                        atom = x11.XInternAtom(dpy, prop_name, 0)
+                        if atom:
+                            x11.XChangeProperty(
+                                dpy, wid, atom, 31, 8, 0, res_name, len(res_name)
+                            )
+
+                    # 3. Check and resize parent / child windows in XEmbed
                     root = ctypes.c_ulong()
                     parent = ctypes.c_ulong()
                     children = ctypes.c_void_p()
@@ -539,10 +607,10 @@ class TrayController(QSystemTrayIcon):
                     if self._linux_hover_sensor is not None:
                         self._linux_hover_sensor.update_sensor_geometry()
                 except Exception as ex:
-                    logger.debug(f"XEmbed resize failed: {ex}")
+                    logger.debug(f"XEmbed property configuration failed: {ex}")
 
             for delay_ms in (50, 250, 800, 1500):
-                QTimer.singleShot(delay_ms, _resize_xembed)
+                QTimer.singleShot(delay_ms, _setup_xembed_properties)
         except Exception as e:
             logger.debug(f"Failed configuring X11 tray widget: {e}")
 
@@ -572,6 +640,10 @@ class TrayController(QSystemTrayIcon):
 
         self._shared_menu.popup(pos)
         self._shared_menu.raise_()
+
+    def on_settings_saved(self, _cfg: object = None) -> None:
+        """Triggered immediately when user saves settings from the flyout window."""
+        self.show()
 
     def show(self) -> None:
         """Shows active tray icons based on user configuration."""

@@ -127,6 +127,7 @@ class MicroFlyoutWindow(QWidget):
 
     refresh_requested = pyqtSignal()
     logout_requested = pyqtSignal()
+    settings_saved = pyqtSignal(object)
 
     def __init__(self, config: AppConfig, parent: Optional[QWidget] = None):
         super().__init__(
@@ -1630,6 +1631,7 @@ class MicroFlyoutWindow(QWidget):
         self.config.thresholds = parsed_thresh if parsed_thresh else [80, 95, 100]
 
         save_config(self.config)
+        self.settings_saved.emit(self.config)
 
         self.btn_save_settings.setText(t("settings.saved_toast"))
         QTimer.singleShot(450, lambda: self.btn_save_settings.setText(t("settings.save")))

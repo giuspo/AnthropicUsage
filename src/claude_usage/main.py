@@ -101,6 +101,7 @@ def main() -> None:
         asyncio.create_task(engine.refresh())
 
     flyout.refresh_requested.connect(trigger_refresh)
+    flyout.settings_saved.connect(tray.on_settings_saved)
     flyout.logout_requested.connect(on_logout)
     tray.refresh_requested.connect(trigger_refresh)
 
