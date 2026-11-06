@@ -967,7 +967,13 @@ class MicroFlyoutWindow(QWidget):
 
         # System row
         sys_row = QHBoxLayout()
-        self.chk_autostart = QCheckBox("🚀 Avvia con Windows", card_style)
+        if sys.platform == "win32":
+            autostart_label = "🚀 Avvia con Windows"
+        elif sys.platform == "darwin":
+            autostart_label = "🚀 Avvia con macOS"
+        else:
+            autostart_label = "🚀 Avvia con Linux"
+        self.chk_autostart = QCheckBox(autostart_label, card_style)
         self.chk_autostart.setChecked(is_autostart_enabled())
         self.chk_autostart.setCursor(Qt.CursorShape.PointingHandCursor)
         self.chk_autostart.setStyleSheet("color: #E4E4E7; font-size: 11px;")
