@@ -8,7 +8,7 @@ import sys
 from typing import Optional
 
 from PyQt6 import sip
-from PyQt6.QtCore import QCoreApplication, QPoint, QRect, Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import QCoreApplication, QEvent, QPoint, QRect, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QAction, QColor, QCursor, QEnterEvent, QGuiApplication, QMouseEvent, QPalette
 from PyQt6.QtWidgets import QLabel, QMenu, QSystemTrayIcon, QWidget
 
