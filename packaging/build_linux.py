@@ -209,9 +209,23 @@ exit 0
         f.write(prerm_content)
     prerm_file.chmod(0o755)
 
-    # 7. Create DEBIAN/postrm script (clean up desktop database and icon cache on remove/purge)
+    # 7. Create DEBIAN/postrm script (clean up desktop database, icon cache, and user-space residue on remove/purge)
     postrm_content = """#!/bin/sh
 set -e
+
+if [ -n "$SUDO_USER" ] && [ "$SUDO_USER" != "root" ]; then
+    USER_HOME=$(getent passwd "$SUDO_USER" | cut -d: -f6)
+    if [ -n "$USER_HOME" ] && [ -d "$USER_HOME" ]; then
+        rm -f "$USER_HOME/.local/bin/claude-usage-widget" || true
+        rm -f "$USER_HOME/.local/bin/ClaudeUsageWidget" || true
+        rm -f "$USER_HOME/.local/share/applications/claude-usage-widget.desktop" || true
+        rm -f "$USER_HOME/.local/share/icons/hicolor/256x256/apps/claude-usage-widget.png" || true
+        rm -f "$USER_HOME/.config/autostart/claude-usage-widget.desktop" || true
+        if which update-desktop-database >/dev/null 2>&1; then
+            update-desktop-database -q "$USER_HOME/.local/share/applications" 2>/dev/null || true
+        fi
+    fi
+fi
 
 if which update-desktop-database >/dev/null 2>&1; then
     update-desktop-database -q /usr/share/applications || true
