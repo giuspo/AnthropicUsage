@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ctypes
 import logging
+import os
 from pathlib import Path
 import sys
 from typing import Optional
@@ -69,10 +70,12 @@ def _has_x11_system_tray() -> bool:
         return False
 
 
-def _clear_qpa_wm_class() -> None:
-    """Resets QXcbIntegration::m_wmClass QByteArray so Qt regenerates WM_CLASS from applicationName."""
+def _clear_qpa_wm_class(wm_class: str = "") -> None:
+    """Resets QXcbIntegration::m_wmClass and m_instanceName so Qt generates a unique WM_CLASS from birth."""
     if not sys.platform.startswith("linux"):
         return
+    if wm_class:
+        os.environ["RESOURCE_NAME"] = wm_class.lower()
     candidates: list[Path | str] = []
     if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
         candidates.append(Path(sys._MEIPASS) / "PyQt6" / "Qt6" / "lib" / "libQt6XcbQpa.so.6")
@@ -94,9 +97,11 @@ def _clear_qpa_wm_class() -> None:
                 # 0x48: d-pointer (ArrayDataPointer)
                 # 0x50: pointer to data characters
                 # 0x58: size (qptrdiff)
+                # 0x60: m_instanceName (const char* to argv[0]); zeroing makes Qt read RESOURCE_NAME
                 ctypes.c_uint64.from_address(xcb_inst + 0x48).value = 0
                 ctypes.c_uint64.from_address(xcb_inst + 0x50).value = 0
                 ctypes.c_uint64.from_address(xcb_inst + 0x58).value = 0
+                ctypes.c_uint64.from_address(xcb_inst + 0x60).value = 0
                 break
         except Exception:
             continue
@@ -331,8 +336,9 @@ class TrayController(QSystemTrayIcon):
         self.tray_antigravity = QSystemTrayIcon(parent)
         self.tray_partner = QSystemTrayIcon(parent)
 
-        self._use_x11_tray = _has_x11_system_tray()
+        self._use_x11_tray = sys.platform.startswith("linux") and QGuiApplication.platformName() == "xcb"
         self._x11_configured: set[int] = set()
+        self._redock_attempts: dict[str, int] = {}
         self._linux_tooltip: Optional[_LinuxTrayTooltip] = None
         self._linux_hover_sensor: Optional[_LinuxTrayHoverSensor] = None
         if self._use_x11_tray:
@@ -463,6 +469,10 @@ class TrayController(QSystemTrayIcon):
                 tray.show()
             return
 
+        if not _has_x11_system_tray():
+            QTimer.singleShot(500, self.show)
+            return
+
         try:
             c_ptr = sip.unwrapinstance(tray)
             d_ptr = ctypes.c_uint64.from_address(c_ptr + 8).value
@@ -473,8 +483,14 @@ class TrayController(QSystemTrayIcon):
                 # which receives direct Button1 (Trigger) and Button3 (Context) events on Ubuntu GNOME.
                 ctypes.c_uint64.from_address(d_ptr + 0xB0).value = 0
 
-                # Clear QXcbIntegration cached m_wmClass so each icon receives a distinct WM_CLASS
-                _clear_qpa_wm_class()
+                # Disable QSystemTrayWatcher (trayWatcher at offset 0xC0) so Qt never recreates
+                # QSystemTrayIconSys behind our backs inside C++ with identical WM_CLASS when
+                # GNOME Shell's ubuntu-appindicators extension restarts/loads at Ubuntu boot.
+                ctypes.c_uint64.from_address(d_ptr + 0xC0).value = 1
+
+                # Clear QXcbIntegration cached m_wmClass & m_instanceName so each icon receives
+                # a distinct res_name and res_class at XCreateWindow time (t = 0.000ms)
+                _clear_qpa_wm_class(wm_class)
 
                 prev_name = QCoreApplication.applicationName()
                 QCoreApplication.setApplicationName(wm_class)
@@ -609,6 +625,7 @@ class TrayController(QSystemTrayIcon):
                 except Exception as ex:
                     logger.debug(f"XEmbed property configuration failed: {ex}")
 
+            _setup_xembed_properties()
             for delay_ms in (50, 250, 800, 1500):
                 QTimer.singleShot(delay_ms, _setup_xembed_properties)
         except Exception as e:
@@ -647,6 +664,10 @@ class TrayController(QSystemTrayIcon):
 
     def show(self) -> None:
         """Shows active tray icons based on user configuration."""
+        if self._use_x11_tray and not _has_x11_system_tray():
+            QTimer.singleShot(500, self.show)
+            return
+
         cfg = getattr(self.flyout, "config", None)
         enable_claude = getattr(cfg, "enable_claude", True)
         enable_antigravity = getattr(cfg, "enable_antigravity", True)
@@ -669,6 +690,51 @@ class TrayController(QSystemTrayIcon):
 
         if self._linux_hover_sensor is not None:
             QTimer.singleShot(300, self._linux_hover_sensor.update_sensor_geometry)
+
+        if self._use_x11_tray:
+            for delay_ms in (1200, 3000, 6000):
+                QTimer.singleShot(delay_ms, self._verify_x11_tray_docking)
+
+    def _verify_x11_tray_docking(self) -> None:
+        """Self-healing watchdog: re-docks any active X11 tray icon that remains undocked at (0, 0) at boot."""
+        if not self._use_x11_tray or not _has_x11_system_tray():
+            return
+
+        cfg = getattr(self.flyout, "config", None)
+        enable_claude = getattr(cfg, "enable_claude", True)
+        enable_antigravity = getattr(cfg, "enable_antigravity", True)
+        tray_mode = getattr(cfg, "antigravity_tray_mode", "single_icon")
+
+        expected: list[tuple[QSystemTrayIcon, str]] = []
+        if enable_claude:
+            expected.append((self, "ClaudeUsageClaude"))
+        if enable_antigravity:
+            expected.append((self.tray_antigravity, "ClaudeUsageGemini"))
+            if tray_mode == "split_partner_icon":
+                expected.append((self.tray_partner, "ClaudeUsagePartner"))
+
+        for tray, wm_class in expected:
+            try:
+                c_ptr = sip.unwrapinstance(tray)
+                d_ptr = ctypes.c_uint64.from_address(c_ptr + 8).value
+                sys_ptr = ctypes.c_uint64.from_address(d_ptr + 0xA8).value
+                geom = tray.geometry()
+                if not sys_ptr or geom.x() <= 0:
+                    attempts = self._redock_attempts.get(wm_class, 0)
+                    if attempts < 6:
+                        self._redock_attempts[wm_class] = attempts + 1
+                        logger.info(
+                            f"Re-docking X11 tray icon {wm_class} (attempt {attempts + 1}, geom={geom})"
+                        )
+                        if tray is self:
+                            super().hide()
+                        else:
+                            tray.hide()
+                        self._show_tray_icon(tray, wm_class)
+                else:
+                    self._redock_attempts[wm_class] = 0
+            except Exception as e:
+                logger.debug(f"Error verifying X11 tray docking for {wm_class}: {e}")
 
     def hide(self) -> None:
         super().hide()
@@ -867,6 +933,9 @@ class TrayController(QSystemTrayIcon):
 
         if self._linux_hover_sensor is not None:
             self._linux_hover_sensor.update_sensor_geometry()
+
+        if self._use_x11_tray:
+            QTimer.singleShot(500, self._verify_x11_tray_docking)
 
 
 # Alias for architectural clarity

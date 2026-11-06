@@ -103,6 +103,7 @@ Exec={exec_cmd}
 Terminal=false
 Categories=Utility;Development;
 X-GNOME-Autostart-enabled=true
+X-GNOME-Autostart-Delay=2
 """
             with open(desktop_file, "w", encoding="utf-8") as f:
                 f.write(content)
@@ -146,3 +147,12 @@ def cleanup_duplicate_autostart() -> None:
                                 logger.warning(f"Could not remove redundant shortcut {link_file}: {e}")
         except Exception as e:
             logger.debug(f"Error checking startup folder: {e}")
+    elif sys.platform.startswith("linux"):
+        try:
+            desktop_file = Path.home() / ".config" / "autostart" / DESKTOP_ENTRY_NAME
+            if desktop_file.exists():
+                content = desktop_file.read_text(encoding="utf-8")
+                if "X-GNOME-Autostart-Delay=" not in content:
+                    _set_autostart_linux(True)
+        except Exception as e:
+            logger.debug(f"Error upgrading Linux autostart entry: {e}")
