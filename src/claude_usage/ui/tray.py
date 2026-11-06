@@ -134,6 +134,19 @@ class TrayController(QSystemTrayIcon):
         self.tray_antigravity.hide()
         self.tray_partner.hide()
 
+    def cleanup(self) -> None:
+        """Hides and explicitly unregisters all tray icons from the OS panel and D-Bus."""
+        try:
+            self.hide()
+            self.setVisible(False)
+            self.tray_antigravity.setVisible(False)
+            self.tray_partner.setVisible(False)
+            self.setContextMenu(None)
+            self.tray_antigravity.setContextMenu(None)
+            self.tray_partner.setContextMenu(None)
+        except Exception as e:
+            logger.debug(f"Error during tray cleanup: {e}")
+
     def _on_claude_activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
         if reason in (QSystemTrayIcon.ActivationReason.Trigger, QSystemTrayIcon.ActivationReason.MiddleClick):
             self.flyout.toggle_at_tray(self.geometry(), target_tab="claude")

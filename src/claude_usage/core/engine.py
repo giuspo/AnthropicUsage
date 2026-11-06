@@ -58,6 +58,7 @@ class UsageFusionEngine(QObject):
         )
 
         self._is_running = False
+        self._stop_event: Optional[asyncio.Event] = None
         self._watcher_task: Optional[asyncio.Task] = None
         self._poller_task: Optional[asyncio.Task] = None
         self._last_fs_activity: float = 0.0
@@ -78,6 +79,7 @@ class UsageFusionEngine(QObject):
     async def start(self) -> None:
         """Starts background monitoring and scheduling."""
         self._is_running = True
+        self._stop_event = asyncio.Event()
         # Perform initial sync
         await self.refresh()
 
@@ -88,12 +90,21 @@ class UsageFusionEngine(QObject):
         self._watcher_task = asyncio.create_task(self._watch_fs_loop())
 
     async def stop(self) -> None:
-        """Stops background tasks."""
+        """Stops background tasks gracefully."""
         self._is_running = False
+        if self._stop_event:
+            self._stop_event.set()
+
+        tasks: list[asyncio.Task] = []
         if self._poller_task:
             self._poller_task.cancel()
+            tasks.append(self._poller_task)
         if self._watcher_task:
             self._watcher_task.cancel()
+            tasks.append(self._watcher_task)
+
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     async def refresh(self) -> CompositeUsageSnapshot:
         """Executes a full data refresh cycle across active providers."""
@@ -266,7 +277,7 @@ class UsageFusionEngine(QObject):
         try:
             from watchfiles import awatch
 
-            async for changes in awatch(*watch_dirs):
+            async for changes in awatch(*watch_dirs, stop_event=self._stop_event):
                 if not self._is_running:
                     break
                 has_jsonl = any(path.endswith(".jsonl") for _, path in changes)

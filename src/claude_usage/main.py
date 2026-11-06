@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import signal
 import sys
 
 from PyQt6.QtGui import QIcon
@@ -101,12 +102,50 @@ def main() -> None:
     flyout.logout_requested.connect(on_logout)
     tray.refresh_requested.connect(trigger_refresh)
 
+    is_shutting_down = False
+
     def on_quit() -> None:
-        single_instance.release()
-        asyncio.create_task(engine.stop())
-        app.quit()
+        nonlocal is_shutting_down
+        if is_shutting_down:
+            return
+        is_shutting_down = True
+        logger.info("Application shutdown requested: cleaning up system tray and background tasks...")
+
+        # 1. Immediately hide and unregister tray icons from OS panel / D-Bus
+        tray.cleanup()
+        flyout.close()
+        flyout.hide()
+        app.processEvents()
+
+        # 2. Asynchronous graceful engine shutdown & termination
+        async def _graceful_exit() -> None:
+            try:
+                await engine.stop()
+            except Exception as e:
+                logger.debug(f"Error during engine stop: {e}")
+            finally:
+                single_instance.release()
+                app.quit()
+                os._exit(0)
+
+        if loop.is_running():
+            asyncio.create_task(_graceful_exit())
+        else:
+            single_instance.release()
+            app.quit()
+            os._exit(0)
 
     tray.quit_requested.connect(on_quit)
+
+    # Wire OS termination signals (SIGINT, SIGTERM) to graceful exit
+    def _sig_handler(_sig: int, _frame: object) -> None:
+        on_quit()
+
+    try:
+        signal.signal(signal.SIGINT, _sig_handler)
+        signal.signal(signal.SIGTERM, _sig_handler)
+    except Exception:
+        pass
 
     # Show system tray icon
     tray.show()
@@ -120,7 +159,9 @@ def main() -> None:
         try:
             loop.run_forever()
         finally:
+            tray.cleanup()
             single_instance.release()
+            os._exit(0)
 
 
 if __name__ == "__main__":
