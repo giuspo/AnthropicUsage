@@ -1,6 +1,6 @@
 [project]
 name = "claude-usage-widget"
-version = "2.1.6"
+version = "2.1.7"
 description = "Cross-platform System Tray Widget for Claude Code & Google Antigravity usage monitoring"
 readme = "README.md"
 authors = [

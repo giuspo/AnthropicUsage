@@ -1004,25 +1004,34 @@ class MicroFlyoutWindow(QWidget):
         self.lbl_lang_title.setStyleSheet("font-size: 12px; font-weight: 700; color: #FFFFFF;")
         layout_lang.addWidget(self.lbl_lang_title)
 
-        hbox_lang = QHBoxLayout()
-        hbox_lang.setSpacing(5)
+        grid_lang = QGridLayout()
+        grid_lang.setSpacing(4)
         self._selected_language = getattr(self.config, "language", "auto")
-        self.btn_lang_auto = QPushButton("🌐 Auto", card_lang)
-        self.btn_lang_it = QPushButton("🇮🇹 Italiano", card_lang)
-        self.btn_lang_en = QPushButton("🇬🇧 English", card_lang)
 
-        for lb in (self.btn_lang_auto, self.btn_lang_it, self.btn_lang_en):
-            lb.setFixedHeight(30)
-            lb.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.lang_buttons: dict[str, QPushButton] = {}
+        langs_data = [
+            ("auto", "🌐 Auto"),
+            ("it", "🇮🇹 Italiano"),
+            ("en", "🇬🇧 English"),
+            ("es", "🇪🇸 Español"),
+            ("fr", "🇫🇷 Français"),
+            ("de", "🇩🇪 Deutsch"),
+            ("pt", "🇵🇹 Português"),
+            ("ja", "🇯🇵 日本語"),
+            ("zh", "🇨🇳 简体中文"),
+        ]
 
-        self.btn_lang_auto.clicked.connect(lambda: self._select_language("auto"))
-        self.btn_lang_it.clicked.connect(lambda: self._select_language("it"))
-        self.btn_lang_en.clicked.connect(lambda: self._select_language("en"))
+        for i, (code, label) in enumerate(langs_data):
+            btn = QPushButton(label, card_lang)
+            btn.setFixedHeight(27)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.clicked.connect(lambda checked=False, c=code: self._select_language(c))
+            row = i // 3
+            col = i % 3
+            grid_lang.addWidget(btn, row, col)
+            self.lang_buttons[code] = btn
 
-        hbox_lang.addWidget(self.btn_lang_auto, stretch=1)
-        hbox_lang.addWidget(self.btn_lang_it, stretch=1)
-        hbox_lang.addWidget(self.btn_lang_en, stretch=1)
-        layout_lang.addLayout(hbox_lang)
+        layout_lang.addLayout(grid_lang)
         self._update_language_buttons()
         scroll_layout.addWidget(card_lang)
 
@@ -1124,15 +1133,11 @@ class MicroFlyoutWindow(QWidget):
 
     def _update_language_buttons(self) -> None:
         current = getattr(self, "_selected_language", "auto")
-        active_css = "QPushButton { background-color: #2563EB; color: #FFFFFF; border-radius: 5px; font-weight: 700; font-size: 11px; border: 1px solid #3B82F6; }"
-        inactive_css = "QPushButton { background-color: #1E1E22; color: #A1A1AA; border-radius: 5px; font-size: 11px; border: 1px solid #2E2E34; } QPushButton:hover { background-color: #2A2A30; }"
+        active_css = "QPushButton { background-color: #2563EB; color: #FFFFFF; border-radius: 5px; font-weight: 700; font-size: 10px; border: 1px solid #3B82F6; }"
+        inactive_css = "QPushButton { background-color: #1E1E22; color: #D4D4D8; border-radius: 5px; font-size: 10px; border: 1px solid #2E2E34; } QPushButton:hover { background-color: #2A2A30; color: #FFFFFF; }"
 
-        if hasattr(self, "btn_lang_auto"):
-            self.btn_lang_auto.setStyleSheet(active_css if current == "auto" else inactive_css)
-        if hasattr(self, "btn_lang_it"):
-            self.btn_lang_it.setStyleSheet(active_css if current == "it" else inactive_css)
-        if hasattr(self, "btn_lang_en"):
-            self.btn_lang_en.setStyleSheet(active_css if current == "en" else inactive_css)
+        for code, btn in getattr(self, "lang_buttons", {}).items():
+            btn.setStyleSheet(active_css if current == code else inactive_css)
 
     def retranslate_ui(self, _lang: str = "") -> None:
         """Dynamically retranslates all widgets in the flyout."""

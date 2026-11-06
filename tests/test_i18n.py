@@ -13,13 +13,12 @@ from claude_usage.i18n import (
 
 
 def test_i18n_supported_languages():
-    assert "auto" in SUPPORTED_LANGUAGES
-    assert "it" in SUPPORTED_LANGUAGES
-    assert "en" in SUPPORTED_LANGUAGES
+    for lang in ("auto", "it", "en", "es", "fr", "de", "pt", "ja", "zh"):
+        assert lang in SUPPORTED_LANGUAGES
 
 
 def test_i18n_language_switching_and_translations():
-    # Set Italian
+    # Italian
     set_language("it")
     assert get_language_setting() == "it"
     assert get_current_language() == "it"
@@ -27,7 +26,7 @@ def test_i18n_language_switching_and_translations():
     assert "Metriche" in t("nav.metrics")
     assert "Disconnetti" in t("settings.btn_logout")
 
-    # Set English
+    # English
     set_language("en")
     assert get_language_setting() == "en"
     assert get_current_language() == "en"
@@ -35,8 +34,44 @@ def test_i18n_language_switching_and_translations():
     assert "Metrics" in t("nav.metrics")
     assert "Logout" in t("settings.btn_logout")
 
+    # Spanish
+    set_language("es")
+    assert get_current_language() == "es"
+    assert "inicio del sistema" in t("settings.autostart")
+    assert "Métricas" in t("nav.metrics")
+
+    # French
+    set_language("fr")
+    assert get_current_language() == "fr"
+    assert "démarrage du système" in t("settings.autostart")
+    assert "Métriques" in t("nav.metrics")
+
+    # German
+    set_language("de")
+    assert get_current_language() == "de"
+    assert "Systemstart" in t("settings.autostart")
+    assert "Metriken" in t("nav.metrics")
+
+    # Portuguese
+    set_language("pt")
+    assert get_current_language() == "pt"
+    assert "inicialização do sistema" in t("settings.autostart")
+    assert "Métricas" in t("nav.metrics")
+
+    # Japanese
+    set_language("ja")
+    assert get_current_language() == "ja"
+    assert "システム起動時" in t("settings.autostart")
+    assert "メトリクス" in t("nav.metrics")
+
+    # Chinese
+    set_language("zh")
+    assert get_current_language() == "zh"
+    assert "开机自启动" in t("settings.autostart")
+    assert "用量指标" in t("nav.metrics")
+
     # String formatting
-    assert t("overview.reset_in", time="2h 15m") == "Reset in 2h 15m"
+    assert t("overview.reset_in", time="2h 15m") == "2h 15m 后重置"
 
 
 def test_i18n_listener_notification():
@@ -53,8 +88,11 @@ def test_i18n_listener_notification():
     set_language("en")
     assert received[-1] == "en"
 
+    set_language("de")
+    assert received[-1] == "de"
+
 
 def test_i18n_auto_resolution():
     set_language("auto")
     assert get_language_setting() == "auto"
-    assert get_current_language() in ("it", "en")
+    assert get_current_language() in ("it", "en", "es", "fr", "de", "pt", "ja", "zh")
