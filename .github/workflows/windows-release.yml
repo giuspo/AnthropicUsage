@@ -43,6 +43,26 @@ jobs:
         shell: pwsh
         run: |
           $tag = if ("${{ github.event.inputs.tag }}" -ne "") { "${{ github.event.inputs.tag }}" } else { "${{ github.ref_name }}" }
+          Write-Host "Verifying existence of GitHub release $tag..."
+          $retries = 0
+          while ($retries -lt 18) {
+            $check = gh release view $tag 2>$null
+            if ($LASTEXITCODE -eq 0) {
+              Write-Host "Found release $tag!"
+              break
+            }
+            Write-Host "Release $tag not created yet, waiting 10s (attempt $($retries+1)/18)..."
+            Start-Sleep -Seconds 10
+            $retries++
+          }
+
+          # If release still doesn't exist after waiting, create it automatically
+          $check = gh release view $tag 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "Creating release $tag automatically..."
+            gh release create $tag --title "$tag" --notes "Release $tag"
+          }
+
           Write-Host "Uploading Windows assets to release $tag..."
           $files = Get-ChildItem -Path "dist\ClaudeUsageWidget*" -File
           foreach ($f in $files) {
