@@ -120,6 +120,7 @@ class IconRenderer:
                 pct=p_5h,
                 color=color_5h,
                 track_color=track_5h,
+                canvas=img,
             )
             cls._draw_vertical_pill_bar(
                 draw=draw,
@@ -130,6 +131,7 @@ class IconRenderer:
                 pct=p_7d,
                 color=color_7d,
                 track_color=track_7d,
+                canvas=img,
             )
         elif style == "split":
             # STYLE B: SPLIT BOTTOM-UP TWIN GAUGES (Left 5h, Right 7d)
@@ -307,15 +309,17 @@ class IconRenderer:
         color: tuple,
         track_color: tuple,
     ) -> None:
-        """Draws a 360-degree track and a progress arc with rounded end caps centered on r_mid."""
+        """Draws a 360-degree track and a progress arc with rounded end caps and 0% baseline dot."""
         bbox = (cx - radius, cy - radius, cx + radius, cy + radius)
         cap_r = width / 2.0
         r_mid = radius - cap_r
+        plate_color = (22, 24, 30, 235)
 
-        # Draw full background track
+        # Draw full background track plate and track tint
+        draw.arc(bbox, start=start_deg, end=start_deg + 360.0, fill=plate_color, width=int(width + 4))
         draw.arc(bbox, start=start_deg, end=start_deg + 360.0, fill=track_color, width=int(width))
 
-        # Draw active progress arc
+        # Draw active progress arc or 0% baseline cap dot
         if sweep_deg > 0.5:
             end_deg = start_deg + min(360.0, sweep_deg)
             draw.arc(bbox, start=start_deg, end=end_deg, fill=color, width=int(width))
@@ -331,6 +335,12 @@ class IconRenderer:
             ex = cx + r_mid * math.cos(e_rad)
             ey = cy + r_mid * math.sin(e_rad)
             draw.ellipse((ex - cap_r, ey - cap_r, ex + cap_r, ey + cap_r), fill=color)
+        else:
+            # 0% illuminated baseline floor cap dot
+            s_rad = math.radians(start_deg)
+            sx = cx + r_mid * math.cos(s_rad)
+            sy = cy + r_mid * math.sin(s_rad)
+            draw.ellipse((sx - cap_r, sy - cap_r, sx + cap_r, sy + cap_r), fill=color)
 
     @classmethod
     def _draw_split_arc_bottom_up(
@@ -345,14 +355,16 @@ class IconRenderer:
         track_color: tuple,
         is_left_side: bool = True,
     ) -> None:
-        """Draws a 144-degree bottom-up gauge arc (6 o'clock to 12 o'clock) with a 36-deg gap."""
+        """Draws a 144-degree bottom-up gauge arc (6 o'clock to 12 o'clock) with high contrast and baseline anchor."""
         bbox = (cx - radius, cy - radius, cx + radius, cy + radius)
         cap_r = width / 2.0
         r_mid = radius - cap_r
         span = 144.0
+        plate_color = (22, 24, 30, 235)
 
         if is_left_side:
             t_start, t_end = 108.0, 252.0
+            draw.arc(bbox, start=t_start, end=t_end, fill=plate_color, width=int(width + 4))
             draw.arc(bbox, start=t_start, end=t_end, fill=track_color, width=int(width))
             for deg in (t_start, t_end):
                 rad = math.radians(deg)
@@ -366,8 +378,10 @@ class IconRenderer:
                     fill=track_color,
                 )
 
-            if pct > 0.5:
-                sweep = max(4.0, (pct / 100.0) * span)
+            p = max(0.0, min(100.0, float(pct)))
+            if p > 0.0:
+                base_sweep = 6.0
+                sweep = base_sweep + (p / 100.0) * (span - base_sweep)
                 a_end = min(t_end, t_start + sweep)
                 draw.arc(bbox, start=t_start, end=a_end, fill=color, width=int(width))
                 for deg in (t_start, a_end):
@@ -381,7 +395,20 @@ class IconRenderer:
                         ),
                         fill=color,
                     )
+            else:
+                rad = math.radians(t_start)
+                draw.ellipse(
+                    (
+                        cx + r_mid * math.cos(rad) - cap_r,
+                        cy + r_mid * math.sin(rad) - cap_r,
+                        cx + r_mid * math.cos(rad) + cap_r,
+                        cy + r_mid * math.sin(rad) + cap_r,
+                    ),
+                    fill=color,
+                )
         else:
+            t_start, t_end = 72.0, -72.0
+            draw.arc(bbox, start=-72.0, end=72.0, fill=plate_color, width=int(width + 4))
             draw.arc(bbox, start=-72.0, end=72.0, fill=track_color, width=int(width))
             for deg in (-72.0, 72.0):
                 rad = math.radians(deg)
@@ -395,8 +422,10 @@ class IconRenderer:
                     fill=track_color,
                 )
 
-            if pct > 0.5:
-                sweep = max(4.0, (pct / 100.0) * span)
+            p = max(0.0, min(100.0, float(pct)))
+            if p > 0.0:
+                base_sweep = 6.0
+                sweep = base_sweep + (p / 100.0) * (span - base_sweep)
                 a_start = max(-72.0, 72.0 - sweep)
                 draw.arc(bbox, start=a_start, end=72.0, fill=color, width=int(width))
                 for deg in (a_start, 72.0):
@@ -410,6 +439,17 @@ class IconRenderer:
                         ),
                         fill=color,
                     )
+            else:
+                rad = math.radians(72.0)
+                draw.ellipse(
+                    (
+                        cx + r_mid * math.cos(rad) - cap_r,
+                        cy + r_mid * math.sin(rad) - cap_r,
+                        cx + r_mid * math.cos(rad) + cap_r,
+                        cy + r_mid * math.sin(rad) + cap_r,
+                    ),
+                    fill=color,
+                )
 
     @classmethod
     def _draw_vertical_pill_bar(
@@ -422,28 +462,59 @@ class IconRenderer:
         pct: float,
         color: tuple,
         track_color: tuple,
+        canvas: Optional[Image.Image] = None,
     ) -> None:
-        """Draws a vertical pill-shaped level column filling from bottom to top."""
+        """Draws a vertical pill-shaped level column with high-contrast plate, illuminated baseline, and progressive fill."""
         bar_w = x1 - x0
         bar_h = y1 - y0
         pill_r = bar_w // 2
-        outline_color = (color[0], color[1], color[2], 110)
+        img = canvas or getattr(draw, "_image", None)
 
-        draw.rounded_rectangle(
-            (x0, y0, x1, y1),
-            radius=pill_r,
-            fill=track_color,
-            outline=outline_color,
-            width=4,
-        )
+        # 1. Base slot plate (dark semi-opaque slate for maximum contrast against taskbars)
+        plate_color = (22, 24, 30, 235)
+        draw.rounded_rectangle((x0, y0, x1, y1), radius=pill_r, fill=plate_color)
 
-        if pct > 0.5:
-            fill_h = max(int(bar_w * 0.65), int((pct / 100.0) * bar_h))
-            draw.rounded_rectangle(
-                (x0, y1 - fill_h, x1, y1),
-                radius=min(pill_r, fill_h // 2),
-                fill=color,
-            )
+        # 2. Track color tint + high-contrast rim outline
+        draw.rounded_rectangle((x0, y0, x1, y1), radius=pill_r, fill=track_color)
+        outline_color = (color[0], color[1], color[2], 215)
+        draw.rounded_rectangle((x0, y0, x1, y1), radius=pill_r, outline=outline_color, width=7)
+
+        # 3. Progressive Fill with calibrated baseline floor
+        # Baseline floor height: ~12% of bar height (~25px on 212px bar)
+        # Even at 0% (healthy 100% capacity remaining), the baseline floor cap visibly illuminates the meter
+        p = max(0.0, min(100.0, float(pct)))
+        base_floor_h = int(bar_h * 0.12)
+
+        if p <= 0.0:
+            fill_h = base_floor_h
+        else:
+            fill_h = base_floor_h + int((p / 100.0) * (bar_h - base_floor_h))
+        fill_h = min(bar_h, fill_h)
+
+        if img is not None:
+            # Masked fill layer: guarantees perfect capsule bottom curvature without distortion
+            mask = Image.new("L", (img.width, img.height), 0)
+            mask_draw = ImageDraw.Draw(mask)
+            mask_draw.rounded_rectangle((x0, y0, x1, y1), radius=pill_r, fill=255)
+
+            fill_layer = Image.new("RGBA", (img.width, img.height), (0, 0, 0, 0))
+            f_draw = ImageDraw.Draw(fill_layer)
+            top_y = y1 - fill_h
+            f_draw.rounded_rectangle((x0, top_y, x1, y1), radius=pill_r, fill=color)
+
+            masked_fill = Image.new("RGBA", (img.width, img.height), (0, 0, 0, 0))
+            masked_fill.paste(fill_layer, (0, 0), mask=mask)
+            img.alpha_composite(masked_fill)
+        else:
+            top_y = y1 - fill_h
+            draw.rounded_rectangle((x0, top_y, x1, y1), radius=min(pill_r, fill_h // 2), fill=color)
+
+        # At 0%, draw an extra luminous baseline tick line at the floor
+        if p <= 0.0:
+            target_img = img if img is not None else getattr(draw, "_image", None)
+            d2 = ImageDraw.Draw(target_img) if target_img is not None else draw
+            tick_y = y1 - base_floor_h
+            d2.line([(x0 + 10, tick_y), (x1 - 10, tick_y)], fill=(color[0], color[1], color[2], 255), width=5)
 
     @classmethod
     def _draw_claude_spark(

@@ -98,3 +98,50 @@ def test_app_icon_generation(tmp_path):
         assert img.size == (128, 128)
         assert img.mode == "RGBA"
 
+
+def test_low_utilization_baseline_visibility():
+    """Validates that at 0% or low usage (5%, 16%), bars and gauges render an active illuminated baseline."""
+    # 1. Bars at 0% usage (e.g. Partner icon with 0% 5h and 0% 7d)
+    img_bars_zero = IconRenderer.render_pil_image(
+        five_hour_pct=0.0,
+        seven_day_pct=0.0,
+        style="bars",
+        provider_type="antigravity_partner",
+        target_size=24,
+    )
+    alphas = [img_bars_zero.getpixel((x, y))[3] for y in range(24) for x in range(24)]
+    solid_count = sum(1 for a in alphas if a >= 200)
+    assert solid_count > 0, "0% usage must display illuminated baseline floor cap, never ghost into black"
+    assert max(alphas) == 255
+
+    # 2. Bars at 16% and 5% (Gemini in user screenshot)
+    img_bars_low = IconRenderer.render_pil_image(
+        five_hour_pct=16.0,
+        seven_day_pct=5.0,
+        style="bars",
+        provider_type="antigravity_gemini",
+        target_size=24,
+    )
+    alphas_low = [img_bars_low.getpixel((x, y))[3] for y in range(24) for x in range(24)]
+    solid_low = sum(1 for a in alphas_low if a >= 200)
+    assert solid_low >= solid_count, "16% + 5% fill must have at least as many solid pixels as baseline"
+
+    # 3. Concentric and Split at 0%
+    img_concentric_zero = IconRenderer.render_pil_image(
+        five_hour_pct=0.0,
+        seven_day_pct=0.0,
+        style="concentric",
+        provider_type="claude",
+        target_size=32,
+    )
+    assert max(img_concentric_zero.getpixel((x, y))[3] for y in range(32) for x in range(32)) == 255
+
+    img_split_zero = IconRenderer.render_pil_image(
+        five_hour_pct=0.0,
+        seven_day_pct=0.0,
+        style="split",
+        provider_type="antigravity_gemini",
+        target_size=32,
+    )
+    assert max(img_split_zero.getpixel((x, y))[3] for y in range(32) for x in range(32)) == 255
+
