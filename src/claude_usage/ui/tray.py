@@ -11,8 +11,8 @@ import time
 from typing import Optional
 
 from PyQt6 import sip
-from PyQt6.QtCore import QCoreApplication, QEvent, QPoint, QRect, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QAction, QColor, QCursor, QEnterEvent, QGuiApplication, QMouseEvent, QPalette
+from PyQt6.QtCore import QCoreApplication, QEvent, QObject, QPoint, QRect, QSize, Qt, QTimer, pyqtSignal
+from PyQt6.QtGui import QAction, QColor, QCursor, QEnterEvent, QGuiApplication, QMouseEvent, QPainter, QPalette
 from PyQt6.QtWidgets import QLabel, QMenu, QSystemTrayIcon, QWidget
 
 from claude_usage import __version__
@@ -519,13 +519,13 @@ class TrayController(QSystemTrayIcon):
 
                 sys_ptr = ctypes.c_uint64.from_address(d_ptr + 0xA8).value
                 if sys_ptr:
-                    self._configure_x11_tray_widget(sys_ptr, wm_class, is_new=True)
+                    self._configure_x11_tray_widget(sys_ptr, wm_class, is_new=True, tray=tray)
             else:
                 if tray is self:
                     super().show()
                 else:
                     tray.show()
-                self._configure_x11_tray_widget(sys_ptr, wm_class, is_new=False)
+                self._configure_x11_tray_widget(sys_ptr, wm_class, is_new=False, tray=tray)
         except Exception as e:
             logger.debug(f"Fallback to standard tray show ({wm_class}): {e}")
             if tray is self:
@@ -533,13 +533,16 @@ class TrayController(QSystemTrayIcon):
             else:
                 tray.show()
 
-    def _configure_x11_tray_widget(self, sys_ptr: int, wm_class: str, is_new: bool = True) -> None:
+    def _configure_x11_tray_widget(
+        self,
+        sys_ptr: int,
+        wm_class: str,
+        is_new: bool = True,
+        tray: Optional[QSystemTrayIcon] = None,
+    ) -> None:
         """Configures the X11 QSystemTrayIconSys widget to match the XEmbed socket size and unique WM_CLASS on GNOME."""
         try:
             w = sip.wrapinstance(sys_ptr, QWidget)
-            # Override Qt6's hardcoded QSystemTrayIconSys minimumSize(22, 22) so the widget
-            # can shrink to 16x16 X11 pixels (20x20 screen px at 1.25x) without parent clipping.
-            w.setMinimumSize(12, 12)
             w.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, False)
             w.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
             w.setAutoFillBackground(True)
@@ -547,6 +550,55 @@ class TrayController(QSystemTrayIcon):
             pal.setColor(QPalette.ColorRole.Window, QColor("#131313"))
             w.setPalette(pal)
             wid = int(w.winId())
+
+            # Install custom physical-pixel paint filter so HiDPI (dpr=2.0) never renders a 32x32 icon clipped by a 16x16 XEmbed socket
+            if tray is None:
+                if wm_class == "ClaudeUsageGemini":
+                    tray = self.tray_antigravity
+                elif wm_class == "ClaudeUsagePartner":
+                    tray = self.tray_partner
+                else:
+                    tray = self
+
+            if not hasattr(self, "_paint_filters"):
+                self._paint_filters: dict[int, QObject] = {}
+
+            if wid not in self._paint_filters:
+                tray_ref = tray
+
+                class _X11TrayPaintFilter(QObject):
+                    def __init__(self, parent_obj: Optional[QObject] = None) -> None:
+                        super().__init__(parent_obj)
+                        self.socket_size: int = 16
+
+                    def eventFilter(self, obj: Optional[QObject], event: Optional[QEvent]) -> bool:
+                        if event is not None and event.type() == QEvent.Type.Paint and isinstance(obj, QWidget):
+                            try:
+                                dpr = max(1.0, float(obj.devicePixelRatioF()))
+                                side = max(12, min(64, int(self.socket_size)))
+                                p = QPainter(obj)
+                                # Cancel Qt's automatic HiDPI devicePixelRatio scaling so 1 unit == 1 physical X11 pixel
+                                p.scale(1.0 / dpr, 1.0 / dpr)
+                                phys_w = max(side, int(round(obj.width() * dpr)))
+                                phys_h = max(side, int(round(obj.height() * dpr)))
+                                p.fillRect(0, 0, phys_w, phys_h, QColor("#131313"))
+                                icon = tray_ref.icon()
+                                if not icon.isNull():
+                                    pm = icon.pixmap(QSize(side, side), 1.0)
+                                    qimg = pm.toImage()
+                                    qimg.setDevicePixelRatio(1.0)
+                                    p.drawImage(0, 0, qimg)
+                                p.end()
+                                return True
+                            except Exception as ex_paint:
+                                logger.debug(f"Custom X11 tray paint filter error: {ex_paint}")
+                        return False
+
+                pf = _X11TrayPaintFilter(w)
+                w.installEventFilter(pf)
+                self._paint_filters[wid] = pf
+
+            paint_filter = self._paint_filters.get(wid)
 
             class XClassHint(ctypes.Structure):
                 _fields_ = [
@@ -595,9 +647,11 @@ class TrayController(QSystemTrayIcon):
                         ctypes.POINTER(ctypes.c_uint),
                         ctypes.POINTER(ctypes.c_uint),
                     ]
-                    x11.XResizeWindow.argtypes = [
+                    x11.XMoveResizeWindow.argtypes = [
                         ctypes.c_void_p,
                         ctypes.c_ulong,
+                        ctypes.c_int,
+                        ctypes.c_int,
                         ctypes.c_uint,
                         ctypes.c_uint,
                     ]
@@ -623,7 +677,7 @@ class TrayController(QSystemTrayIcon):
                                 dpy, wid, atom, 31, 8, 0, res_name, len(res_name)
                             )
 
-                    # 3. Synchronize child window size with XEmbed parent socket so it is never clipped
+                    # 3. Synchronize child window position (0, 0) and size with XEmbed parent socket
                     root = ctypes.c_ulong()
                     parent = ctypes.c_ulong()
                     children = ctypes.c_void_p()
@@ -639,6 +693,7 @@ class TrayController(QSystemTrayIcon):
                     if children.value:
                         x11.XFree(children)
 
+                    side = 16
                     if ret and parent.value and parent.value != root.value:
                         p_root = ctypes.c_ulong()
                         px = ctypes.c_int()
@@ -660,12 +715,13 @@ class TrayController(QSystemTrayIcon):
                         ):
                             if pw.value >= 12 and ph.value >= 12:
                                 side = max(12, min(64, min(int(pw.value), int(ph.value))))
-                                x11.XResizeWindow(dpy, wid, side, side)
-                                dpr = max(1.0, float(w.devicePixelRatioF()))
-                                logical_side = max(12, int(round(side / dpr)))
-                                if w.width() != logical_side or w.height() != logical_side:
-                                    w.resize(logical_side, logical_side)
 
+                    if paint_filter is not None:
+                        paint_filter.socket_size = side
+
+                    # Always anchor wid at (0, 0) inside parent.value using pure X11 XMoveResizeWindow
+                    # (never call w.resize() in Qt, which corrupts relative X11 coordinates under dpr=2.0)
+                    x11.XMoveResizeWindow(dpy, wid, 0, 0, side, side)
                     x11.XFlush(dpy)
                     x11.XCloseDisplay(dpy)
                     w.update()
@@ -890,9 +946,11 @@ class TrayController(QSystemTrayIcon):
                 ctypes.POINTER(ctypes.c_uint),
                 ctypes.POINTER(ctypes.c_uint),
             ]
-            x11.XResizeWindow.argtypes = [
+            x11.XMoveResizeWindow.argtypes = [
                 ctypes.c_void_p,
                 ctypes.c_ulong,
+                ctypes.c_int,
+                ctypes.c_int,
                 ctypes.c_uint,
                 ctypes.c_uint,
             ]
@@ -959,10 +1017,10 @@ class TrayController(QSystemTrayIcon):
                             )
                             # Re-dock by sending SYSTEM_TRAY_REQUEST_DOCK
                             self._redock_x11_window(wid, wm_class)
-                            self._configure_x11_tray_widget(sys_ptr, wm_class, is_new=True)
+                            self._configure_x11_tray_widget(sys_ptr, wm_class, is_new=True, tray=tray)
                     else:
                         self._redock_attempts[wm_class] = 0
-                        # Ensure embedded child window size stays synchronized with parent socket size
+                        # Ensure embedded child window stays anchored at (0, 0) inside parent socket (never call w.resize in Qt!)
                         p_root = ctypes.c_ulong()
                         px = ctypes.c_int()
                         py = ctypes.c_int()
@@ -983,14 +1041,31 @@ class TrayController(QSystemTrayIcon):
                         ):
                             if pw.value >= 12 and ph.value >= 12:
                                 side = max(12, min(64, min(int(pw.value), int(ph.value))))
-                                dpr = max(1.0, float(w.devicePixelRatioF()))
-                                logical_side = max(12, int(round(side / dpr)))
-                                if w.width() != logical_side or w.height() != logical_side:
-                                    w.setMinimumSize(12, 12)
-                                    x11.XResizeWindow(dpy, wid, side, side)
-                                    x11.XFlush(dpy)
-                                    w.resize(logical_side, logical_side)
-                                    w.update()
+                                pf = getattr(self, "_paint_filters", {}).get(wid)
+                                if pf is not None:
+                                    pf.socket_size = side
+                                w_root = ctypes.c_ulong()
+                                wx = ctypes.c_int()
+                                wy = ctypes.c_int()
+                                ww = ctypes.c_uint()
+                                wh = ctypes.c_uint()
+                                w_bw = ctypes.c_uint()
+                                w_depth = ctypes.c_uint()
+                                if x11.XGetGeometry(
+                                    dpy,
+                                    wid,
+                                    ctypes.byref(w_root),
+                                    ctypes.byref(wx),
+                                    ctypes.byref(wy),
+                                    ctypes.byref(ww),
+                                    ctypes.byref(wh),
+                                    ctypes.byref(w_bw),
+                                    ctypes.byref(w_depth),
+                                ):
+                                    if wx.value != 0 or wy.value != 0 or ww.value != side or wh.value != side:
+                                        x11.XMoveResizeWindow(dpy, wid, 0, 0, side, side)
+                                        x11.XFlush(dpy)
+                                        w.update()
                 except Exception as ex:
                     logger.debug(f"Error inspecting tray {wm_class}: {ex}")
         finally:
@@ -1107,7 +1182,6 @@ class TrayController(QSystemTrayIcon):
 
         # 1. Update Claude Icon
         if enable_claude and claude_snap:
-            self._show_tray_icon(self, "ClaudeUsageClaude")
             icon_claude = IconRenderer.render_tray_icon(
                 five_hour_pct=claude_snap.five_hour.utilization_pct,
                 seven_day_pct=claude_snap.seven_day.utilization_pct,
@@ -1116,6 +1190,7 @@ class TrayController(QSystemTrayIcon):
                 provider_type="claude",
             )
             self.setIcon(icon_claude)
+            self._show_tray_icon(self, "ClaudeUsageClaude")
 
             p5 = int(round(claude_snap.five_hour.utilization_pct))
             p7 = int(round(claude_snap.seven_day.utilization_pct))
@@ -1129,11 +1204,7 @@ class TrayController(QSystemTrayIcon):
 
         # 2. Update Antigravity Icon(s)
         if enable_antigravity and antigravity_snap:
-            self._show_tray_icon(self.tray_antigravity, "ClaudeUsageGemini")
-
             if tray_mode == "split_partner_icon":
-                self._show_tray_icon(self.tray_partner, "ClaudeUsagePartner")
-
                 # Icon 2: Gemini (with dedicated Argon alert badge if active)
                 argon_val = (
                     antigravity_snap.gemini_argon_7d.utilization_pct
@@ -1149,6 +1220,7 @@ class TrayController(QSystemTrayIcon):
                     argon_pct=argon_val,
                 )
                 self.tray_antigravity.setIcon(icon_gemini)
+                self._show_tray_icon(self.tray_antigravity, "ClaudeUsageGemini")
                 g5 = int(round(antigravity_snap.gemini_5h.utilization_pct))
                 g7 = int(round(antigravity_snap.gemini_7d.utilization_pct))
                 if antigravity_snap.gemini_argon_7d is not None:
@@ -1169,6 +1241,7 @@ class TrayController(QSystemTrayIcon):
                     provider_type="antigravity_partner",
                 )
                 self.tray_partner.setIcon(icon_partner)
+                self._show_tray_icon(self.tray_partner, "ClaudeUsagePartner")
                 prt5 = int(round(antigravity_snap.partner_5h.utilization_pct))
                 prt7 = int(round(antigravity_snap.partner_7d.utilization_pct))
                 ptxt = f"5h: {prt5}% ({antigravity_snap.partner_5h.time_remaining_str}) | 7g: {prt7}% ({antigravity_snap.partner_7d.time_remaining_str})"
@@ -1195,6 +1268,7 @@ class TrayController(QSystemTrayIcon):
                     argon_pct=argon_single,
                 )
                 self.tray_antigravity.setIcon(icon_single)
+                self._show_tray_icon(self.tray_antigravity, "ClaudeUsageGemini")
 
                 p5_int = int(round(p5_val))
                 p7_int = int(round(p7_val))

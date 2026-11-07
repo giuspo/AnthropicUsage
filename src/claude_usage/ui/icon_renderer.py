@@ -155,12 +155,12 @@ class IconRenderer:
         if style == "bars":
             # STYLE C: DUAL VERTICAL PILL COLUMNS (Left 5h, Right 7d)
             # Grid-aligned for 16x16, 20x20, 24x24, and 32x32 XEmbed / StatusNotifier sockets:
-            # Left column: x0=24..112 (w=88), Right column: x0=144..232 (w=88), Center gap=32px (exact 2px at 16x16)
+            # Left column: x0=20..106 (w=86), Right column: x0=150..236 (w=86), Center gap=44px (exact 2px at 16x16)
             cls._draw_vertical_pill_bar(
                 draw=draw,
-                x0=24,
+                x0=20,
                 y0=16,
-                x1=112,
+                x1=106,
                 y1=240,
                 pct=p_5h,
                 color=color_5h,
@@ -169,9 +169,9 @@ class IconRenderer:
             )
             cls._draw_vertical_pill_bar(
                 draw=draw,
-                x0=144,
+                x0=150,
                 y0=16,
-                x1=232,
+                x1=236,
                 y1=240,
                 pct=p_7d,
                 color=color_7d,
