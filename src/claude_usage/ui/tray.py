@@ -7,6 +7,7 @@ import logging
 import os
 from pathlib import Path
 import sys
+import time
 from typing import Optional
 
 from PyQt6 import sip
@@ -344,6 +345,20 @@ class TrayController(QSystemTrayIcon):
         if self._use_x11_tray:
             self._linux_tooltip = _LinuxTrayTooltip()
             self._linux_hover_sensor = _LinuxTrayHoverSensor(self)
+
+            # Monitor system screens/displays changes (e.g. HDMI hotplug, display wake)
+            app_inst = QGuiApplication.instance()
+            if app_inst:
+                app_inst.primaryScreenChanged.connect(self._on_screens_changed)
+                app_inst.screenAdded.connect(self._on_screens_changed)
+                app_inst.screenRemoved.connect(self._on_screens_changed)
+
+            # Suspend/Resume clock-jump detection and periodic docking health check
+            self._last_watchdog_tick = time.monotonic()
+            self._suspend_watchdog_timer = QTimer(self)
+            self._suspend_watchdog_timer.setInterval(3000)
+            self._suspend_watchdog_timer.timeout.connect(self._on_suspend_watchdog_tick)
+            self._suspend_watchdog_timer.start()
 
         self._shared_menu = self._create_menu()
         self._menu_backdrop: Optional[_MenuBackdrop] = None
@@ -695,8 +710,109 @@ class TrayController(QSystemTrayIcon):
             for delay_ms in (1200, 3000, 6000):
                 QTimer.singleShot(delay_ms, self._verify_x11_tray_docking)
 
+    def _on_suspend_watchdog_tick(self) -> None:
+        """Periodic health check and suspend/resume detection via time.monotonic clock gap."""
+        if not self._use_x11_tray:
+            return
+        now = time.monotonic()
+        elapsed = now - getattr(self, "_last_watchdog_tick", now)
+        self._last_watchdog_tick = now
+
+        # A clock gap > 7.0s between 3.0s ticks means the system was asleep/suspended
+        if elapsed > 7.0:
+            logger.info(
+                f"System resume from suspend detected (clock gap {elapsed:.1f}s), re-docking all X11 tray icons..."
+            )
+            self._redock_attempts.clear()
+            for delay in (150, 600, 1500, 3500):
+                QTimer.singleShot(delay, self._verify_x11_tray_docking)
+            return
+
+        # Periodic health check: verify no tray icon is orphaned on the root desktop
+        self._verify_x11_tray_docking()
+
+    def _on_screens_changed(self, *args) -> None:
+        """Triggered whenever display configuration changes (e.g. HDMI reconnect, display wake)."""
+        if not self._use_x11_tray:
+            return
+        logger.info("Screen/display topology changed, verifying X11 tray docking and sensor geometry...")
+        self._redock_attempts.clear()
+        for delay in (200, 800, 2000):
+            QTimer.singleShot(delay, self._verify_x11_tray_docking)
+        if self._linux_hover_sensor is not None:
+            self._linux_hover_sensor.update_sensor_geometry()
+
+    def _redock_x11_window(self, wid: int, wm_class: str) -> bool:
+        """Sends X11 SYSTEM_TRAY_REQUEST_DOCK to the active _NET_SYSTEM_TRAY_S0 owner for wid."""
+        if not self._use_x11_tray:
+            return False
+        try:
+            x11 = ctypes.CDLL("libX11.so.6")
+            x11.XOpenDisplay.argtypes = [ctypes.c_char_p]
+            x11.XOpenDisplay.restype = ctypes.c_void_p
+            x11.XInternAtom.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_int]
+            x11.XInternAtom.restype = ctypes.c_ulong
+            x11.XGetSelectionOwner.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
+            x11.XGetSelectionOwner.restype = ctypes.c_ulong
+            x11.XUnmapWindow.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
+            x11.XSendEvent.argtypes = [
+                ctypes.c_void_p,
+                ctypes.c_ulong,
+                ctypes.c_int,
+                ctypes.c_long,
+                ctypes.c_void_p,
+            ]
+            x11.XSync.argtypes = [ctypes.c_void_p, ctypes.c_int]
+            x11.XCloseDisplay.argtypes = [ctypes.c_void_p]
+
+            dpy = x11.XOpenDisplay(None)
+            if not dpy:
+                return False
+
+            atom_tray = x11.XInternAtom(dpy, b"_NET_SYSTEM_TRAY_S0", 0)
+            atom_opcode = x11.XInternAtom(dpy, b"_NET_SYSTEM_TRAY_OPCODE", 0)
+            owner = x11.XGetSelectionOwner(dpy, atom_tray)
+            if not owner:
+                x11.XCloseDisplay(dpy)
+                return False
+
+            # Immediately unmap from root so it never flashes or remains at (0, 0)
+            x11.XUnmapWindow(dpy, wid)
+
+            class XClientMessageEvent(ctypes.Structure):
+                _fields_ = [
+                    ("type", ctypes.c_int),
+                    ("serial", ctypes.c_ulong),
+                    ("send_event", ctypes.c_int),
+                    ("display", ctypes.c_void_p),
+                    ("window", ctypes.c_ulong),
+                    ("message_type", ctypes.c_ulong),
+                    ("format", ctypes.c_int),
+                    ("data_l", ctypes.c_long * 5),
+                ]
+
+            ev = XClientMessageEvent()
+            ev.type = 33  # ClientMessage
+            ev.window = owner
+            ev.message_type = atom_opcode
+            ev.format = 32
+            ev.data_l[0] = 0  # CurrentTime
+            ev.data_l[1] = 0  # SYSTEM_TRAY_REQUEST_DOCK
+            ev.data_l[2] = wid  # our tray window ID
+            ev.data_l[3] = 0
+            ev.data_l[4] = 0
+
+            x11.XSendEvent(dpy, owner, 0, 0, ctypes.byref(ev))
+            x11.XSync(dpy, 0)
+            x11.XCloseDisplay(dpy)
+            logger.info(f"Re-docked X11 tray icon {wm_class} (wid={hex(wid)}) into tray owner {hex(owner)}")
+            return True
+        except Exception as e:
+            logger.debug(f"Failed sending SYSTEM_TRAY_REQUEST_DOCK for {wm_class}: {e}")
+            return False
+
     def _verify_x11_tray_docking(self) -> None:
-        """Self-healing watchdog: re-docks any active X11 tray icon that remains undocked at (0, 0) at boot."""
+        """Self-healing watchdog: detects orphaned tray windows on root (0, 0) and re-docks them."""
         if not self._use_x11_tray or not _has_x11_system_tray():
             return
 
@@ -713,28 +829,90 @@ class TrayController(QSystemTrayIcon):
             if tray_mode == "split_partner_icon":
                 expected.append((self.tray_partner, "ClaudeUsagePartner"))
 
-        for tray, wm_class in expected:
-            try:
-                c_ptr = sip.unwrapinstance(tray)
-                d_ptr = ctypes.c_uint64.from_address(c_ptr + 8).value
-                sys_ptr = ctypes.c_uint64.from_address(d_ptr + 0xA8).value
-                geom = tray.geometry()
-                if not sys_ptr or geom.x() <= 0:
-                    attempts = self._redock_attempts.get(wm_class, 0)
-                    if attempts < 6:
-                        self._redock_attempts[wm_class] = attempts + 1
-                        logger.info(
-                            f"Re-docking X11 tray icon {wm_class} (attempt {attempts + 1}, geom={geom})"
-                        )
-                        if tray is self:
-                            super().hide()
-                        else:
-                            tray.hide()
+        try:
+            x11 = ctypes.CDLL("libX11.so.6")
+            x11.XOpenDisplay.argtypes = [ctypes.c_char_p]
+            x11.XOpenDisplay.restype = ctypes.c_void_p
+            x11.XDefaultRootWindow.argtypes = [ctypes.c_void_p]
+            x11.XDefaultRootWindow.restype = ctypes.c_ulong
+            x11.XQueryTree.argtypes = [
+                ctypes.c_void_p,
+                ctypes.c_ulong,
+                ctypes.POINTER(ctypes.c_ulong),
+                ctypes.POINTER(ctypes.c_ulong),
+                ctypes.POINTER(ctypes.c_void_p),
+                ctypes.POINTER(ctypes.c_uint),
+            ]
+            x11.XCloseDisplay.argtypes = [ctypes.c_void_p]
+
+            dpy = x11.XOpenDisplay(None)
+            if not dpy:
+                return
+            root_wid = x11.XDefaultRootWindow(dpy)
+        except Exception as e:
+            logger.debug(f"Cannot initialize X11 display for docking check: {e}")
+            return
+
+        try:
+            for tray, wm_class in expected:
+                try:
+                    c_ptr = sip.unwrapinstance(tray)
+                    d_ptr = ctypes.c_uint64.from_address(c_ptr + 8).value
+                    sys_ptr = ctypes.c_uint64.from_address(d_ptr + 0xA8).value
+
+                    if not sys_ptr:
                         self._show_tray_icon(tray, wm_class)
-                else:
-                    self._redock_attempts[wm_class] = 0
-            except Exception as e:
-                logger.debug(f"Error verifying X11 tray docking for {wm_class}: {e}")
+                        continue
+
+                    w = sip.wrapinstance(sys_ptr, QWidget)
+                    wid = int(w.winId())
+                    if not wid:
+                        continue
+
+                    # Query parent window in X11 tree
+                    r = ctypes.c_ulong()
+                    p = ctypes.c_ulong()
+                    children = ctypes.c_void_p()
+                    nchildren = ctypes.c_uint()
+                    ret = x11.XQueryTree(
+                        dpy,
+                        wid,
+                        ctypes.byref(r),
+                        ctypes.byref(p),
+                        ctypes.byref(children),
+                        ctypes.byref(nchildren),
+                    )
+
+                    geom = tray.geometry()
+                    # An icon is orphaned if XQueryTree failed, parent is root (not embedded),
+                    # or geometry collapsed to top-left (0, 0)
+                    is_orphaned = (
+                        not ret
+                        or not p.value
+                        or p.value == root_wid
+                        or (geom.x() == 0 and geom.y() == 0)
+                    )
+
+                    if is_orphaned:
+                        attempts = self._redock_attempts.get(wm_class, 0)
+                        if attempts < 8:
+                            self._redock_attempts[wm_class] = attempts + 1
+                            logger.info(
+                                f"Detected orphaned/undocked X11 tray icon {wm_class} "
+                                f"(wid={hex(wid)}, parent={hex(p.value)}, geom={geom}, attempt {attempts + 1})"
+                            )
+                            # Re-dock by sending SYSTEM_TRAY_REQUEST_DOCK
+                            self._redock_x11_window(wid, wm_class)
+                            self._configure_x11_tray_widget(sys_ptr, wm_class)
+                    else:
+                        self._redock_attempts[wm_class] = 0
+                except Exception as ex:
+                    logger.debug(f"Error inspecting tray {wm_class}: {ex}")
+        finally:
+            x11.XCloseDisplay(dpy)
+
+        if self._linux_hover_sensor is not None:
+            self._linux_hover_sensor.update_sensor_geometry()
 
     def hide(self) -> None:
         super().hide()
@@ -748,6 +926,8 @@ class TrayController(QSystemTrayIcon):
     def cleanup(self) -> None:
         """Hides and explicitly unregisters all tray icons from the OS panel and D-Bus."""
         try:
+            if hasattr(self, "_suspend_watchdog_timer") and self._suspend_watchdog_timer.isActive():
+                self._suspend_watchdog_timer.stop()
             self.hide()
             if self._linux_tooltip is not None:
                 self._linux_tooltip.close()

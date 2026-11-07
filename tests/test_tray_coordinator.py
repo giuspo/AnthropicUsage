@@ -90,3 +90,21 @@ def test_tray_coordinator_on_settings_saved(qapp):
     tray.show.assert_called_once()
 
 
+def test_suspend_resume_watchdog_clock_gap(qapp):
+    fake_flyout = MagicMock()
+    fake_flyout.config = AppConfig()
+
+    tray = TrayController(fake_flyout)
+    tray._use_x11_tray = True
+    tray._verify_x11_tray_docking = MagicMock()
+
+    # Simulate clock jump of 15 seconds (suspend / sleep)
+    tray._last_watchdog_tick = 100.0
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr("time.monotonic", lambda: 115.0)
+        tray._on_suspend_watchdog_tick()
+
+    assert tray._redock_attempts == {}
+    assert tray._last_watchdog_tick == 115.0
+
+
