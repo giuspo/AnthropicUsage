@@ -321,3 +321,53 @@ def test_antigravity_gemini_4_argon_quota_parsing():
     assert any("Argon" in m.display_name for m in snap.gemini_models)
 
 
+@pytest.mark.asyncio
+async def test_antigravity_local_hub_discovery_and_fetch(tmp_path, monkeypatch):
+    daemon_dir = tmp_path / ".gemini" / "antigravity" / "daemon"
+    daemon_dir.mkdir(parents=True)
+    hub_file = daemon_dir / "hub_39999.json"
+    hub_file.write_text('{"httpPort": 39999, "csrfToken": "test-csrf-123", "pid": 99999}')
+
+    client = AntigravityApiClient()
+    monkeypatch.setattr("pathlib.Path.home", lambda: tmp_path)
+    monkeypatch.setattr("os.path.exists", lambda path: True)
+
+    port, csrf = client._discover_local_hub()
+    assert port == 39999
+    assert csrf == "test-csrf-123"
+
+    # Test parse responses with wrapped Connect RPC response
+    raw_rpc_summary = {
+        "response": {
+            "groups": [
+                {
+                    "displayName": "Gemini Models",
+                    "buckets": [
+                        {"window": "5h", "remainingFraction": 0.91, "resetTime": "2026-11-07T14:44:42Z"},
+                        {"window": "weekly", "remainingFraction": 0.98, "resetTime": "2026-11-14T09:44:42Z"},
+                    ],
+                },
+                {
+                    "displayName": "Claude and GPT models",
+                    "buckets": [
+                        {"window": "weekly", "remainingFraction": 0.18, "resetTime": "2026-11-13T17:47:00Z"},
+                    ],
+                },
+                {
+                    "displayName": "Gemini 4 Argon",
+                    "buckets": [
+                        {"window": "weekly", "remainingFraction": 1.0, "resetTime": "2026-11-14T10:25:32Z"},
+                    ],
+                },
+            ]
+        }
+    }
+
+    snap = client._parse_responses(AuthState(is_valid=True), raw_rpc_summary, None)
+    assert snap.gemini_5h.utilization_pct == 9.0  # 91% left -> 9% used
+    assert snap.gemini_7d.utilization_pct == 2.0  # 98% left -> 2% used
+    assert snap.partner_7d.utilization_pct == 82.0  # 18% left -> 82% used
+    assert snap.gemini_argon_7d.utilization_pct == 0.0  # 100% left -> 0% used
+
+
+

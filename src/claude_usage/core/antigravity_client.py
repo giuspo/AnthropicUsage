@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import logging
+import os
+from pathlib import Path
+import sys
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -31,6 +35,39 @@ class AntigravityApiClient:
         self.last_status_code: Optional[int] = None
         self.retry_after_until: Optional[datetime] = None
 
+    def _discover_local_hub(self) -> Optional[tuple[int, str]]:
+        """Discovers active local Antigravity LanguageServer daemon port and CSRF token.
+
+        Reads ~/.gemini/antigravity/daemon/hub_*.json (or Windows equivalent).
+        Verifies that process is alive, returns (http_port, csrf_token).
+        """
+        try:
+            daemon_dir = Path.home() / ".gemini" / "antigravity" / "daemon"
+            if not daemon_dir.exists():
+                return None
+            hub_files = sorted(
+                daemon_dir.glob("hub_*.json"),
+                key=lambda p: p.stat().st_mtime,
+                reverse=True,
+            )
+            for hf in hub_files:
+                try:
+                    with open(hf, "r", encoding="utf-8") as f:
+                        cfg = json.load(f)
+                    port = cfg.get("httpPort")
+                    csrf = cfg.get("csrfToken")
+                    pid = cfg.get("pid")
+                    if port and csrf:
+                        if pid and sys.platform.startswith("linux"):
+                            if not os.path.exists(f"/proc/{pid}"):
+                                continue
+                        return int(port), str(csrf)
+                except Exception:
+                    continue
+        except Exception as e:
+            logger.debug(f"Local hub discovery exception: {e}")
+        return None
+
     async def fetch_usage(
         self, auth: AuthState, mock: bool = False, retry_on_401: bool = True
     ) -> AntigravityUsageSnapshot:
@@ -45,6 +82,34 @@ class AntigravityApiClient:
                 is_rate_limited=True,
                 status_label=f"Cooldown Google API ({wait_rem}s)",
             )
+
+        # 0. Query local Antigravity daemon hub first (authoritative real-time metrics, zero cloud latency)
+        hub_info = self._discover_local_hub()
+        if hub_info:
+            port, csrf = hub_info
+            try:
+                async with httpx.AsyncClient(timeout=2.5) as local_client:
+                    r_summary = await local_client.post(
+                        f"http://127.0.0.1:{port}/exa.language_server_pb.LanguageServerService/RetrieveUserQuotaSummary",
+                        json={"request": {}, "force_refresh": True},
+                        headers={"X-Codeium-Csrf-Token": csrf, "Content-Type": "application/json"},
+                    )
+                    if r_summary.status_code == 200:
+                        r_models = await local_client.post(
+                            f"http://127.0.0.1:{port}/exa.language_server_pb.LanguageServerService/GetAvailableModels",
+                            json={},
+                            headers={"X-Codeium-Csrf-Token": csrf, "Content-Type": "application/json"},
+                        )
+                        q_summary = r_summary.json().get("response", r_summary.json())
+                        q_models = (
+                            r_models.json().get("response", r_models.json())
+                            if r_models.status_code == 200
+                            else None
+                        )
+                        logger.info(f"Loaded live Antigravity quota from local LanguageServer (port {port})")
+                        return self._parse_responses(auth, q_summary, q_models, None)
+            except Exception as e:
+                logger.debug(f"Local daemon hub query failed, falling back to remote API: {e}")
 
         if not auth.is_valid or not auth.access_token:
             return AntigravityUsageSnapshot(
@@ -141,6 +206,12 @@ class AntigravityApiClient:
             status_label="🟢 Connesso via Google AI Pro",
             last_updated=datetime.now(),
         )
+
+        # Unwrap Connect RPC 'response' wrapper if present
+        if quota_summary and "response" in quota_summary:
+            quota_summary = quota_summary["response"]
+        if models_data and "response" in models_data:
+            models_data = models_data["response"]
 
         # 1. Parse Groups from retrieveUserQuotaSummary
         if quota_summary and "groups" in quota_summary:
