@@ -145,3 +145,37 @@ def test_low_utilization_baseline_visibility():
     )
     assert max(img_split_zero.getpixel((x, y))[3] for y in range(32) for x in range(32)) == 255
 
+
+def test_high_contrast_slot_and_fill_distinction():
+    """Validates that empty track slots remain dark neutral charcoal while active fill is bright neon,
+
+    guaranteeing a > 4:1 contrast ratio that eliminates hollow or uniformly colored icons on dark taskbars.
+    """
+    img_gemini_22 = IconRenderer.render_pil_image(
+        five_hour_pct=22.0,
+        seven_day_pct=6.0,
+        style="bars",
+        provider_type="antigravity_gemini",
+        target_size=24,
+    )
+
+    # Empty upper slot region in left pill (column x=7, rows y=4..13)
+    empty_brightnesses = [
+        int(0.299 * img_gemini_22.getpixel((7, y))[0] + 0.587 * img_gemini_22.getpixel((7, y))[1] + 0.114 * img_gemini_22.getpixel((7, y))[2])
+        for y in range(4, 14)
+    ]
+    avg_empty = sum(empty_brightnesses) / len(empty_brightnesses)
+    assert avg_empty < 50.0, f"Empty track slot must be dark neutral charcoal, got brightness {avg_empty}"
+
+    # Filled lower level region in left pill (column x=7, rows y=17..20)
+    fill_brightnesses = [
+        int(0.299 * img_gemini_22.getpixel((7, y))[0] + 0.587 * img_gemini_22.getpixel((7, y))[1] + 0.114 * img_gemini_22.getpixel((7, y))[2])
+        for y in range(17, 21)
+    ]
+    avg_fill = sum(fill_brightnesses) / len(fill_brightnesses)
+    assert avg_fill > 130.0, f"Filled level region must be vibrant neon, got brightness {avg_fill}"
+
+    contrast_ratio = avg_fill / avg_empty
+    assert contrast_ratio >= 4.0, f"Contrast ratio between fill and slot must be >= 4.0, got {contrast_ratio:.2f}"
+
+

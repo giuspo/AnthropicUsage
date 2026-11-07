@@ -111,12 +111,14 @@ class IconRenderer:
 
         if style == "bars":
             # STYLE C: DUAL VERTICAL PILL COLUMNS (Left 5h, Right 7d)
+            # High-contrast neutral charcoal slot plates with vivid neon progress fill
+            # Left column: x0=32..116 (w=84), Right column: x0=140..224 (w=84), Gap=24px crisp separation
             cls._draw_vertical_pill_bar(
                 draw=draw,
-                x0=38,
-                y0=22,
-                x1=114,
-                y1=234,
+                x0=32,
+                y0=24,
+                x1=116,
+                y1=232,
                 pct=p_5h,
                 color=color_5h,
                 track_color=track_5h,
@@ -124,10 +126,10 @@ class IconRenderer:
             )
             cls._draw_vertical_pill_bar(
                 draw=draw,
-                x0=142,
-                y0=22,
-                x1=218,
-                y1=234,
+                x0=140,
+                y0=24,
+                x1=224,
+                y1=232,
                 pct=p_7d,
                 color=color_7d,
                 track_color=track_7d,
@@ -197,15 +199,24 @@ class IconRenderer:
             # Central Glyph
             cls._draw_center_glyph(draw, cx, cy, radius=36.0, color=center_color, provider_type=provider_type)
 
-        # Draw dedicated Gemini 4 Argon alert badge / pip when present
-        if argon_pct is not None:
+        # Draw dedicated Gemini 4 Argon alert badge / pip only when active usage exists
+        if argon_pct is not None and float(argon_pct) > 0.0:
             if style == "bars":
-                bx, by, brad = 212.0, 38.0, 32.0
+                bx, by, brad = 216.0, 36.0, 24.0
             else:
-                bx, by, brad = 210.0, 46.0, 28.0
+                bx, by, brad = 210.0, 46.0, 26.0
             cls._draw_argon_badge(draw, bx, by, argon_pct, radius=brad)
 
-        return img.resize((target_size, target_size), Image.Resampling.LANCZOS)
+        res = img.resize((target_size, target_size), Image.Resampling.LANCZOS)
+        # Suppress any Lanczos antialiasing ringing on fully/mostly transparent pixels
+        pix = res.load()
+        w_px, h_px = res.size
+        for y in range(h_px):
+            for x in range(w_px):
+                r_val, g_val, b_val, a_val = pix[x, y]
+                if a_val < 10:
+                    pix[x, y] = (0, 0, 0, 0)
+        return res
 
     @classmethod
     def _draw_center_glyph(
@@ -313,11 +324,12 @@ class IconRenderer:
         bbox = (cx - radius, cy - radius, cx + radius, cy + radius)
         cap_r = width / 2.0
         r_mid = radius - cap_r
-        plate_color = (22, 24, 30, 235)
+        slot_bg = (26, 28, 34, 245)
+        slot_rim = (60, 65, 78, 220)
 
-        # Draw full background track plate and track tint
-        draw.arc(bbox, start=start_deg, end=start_deg + 360.0, fill=plate_color, width=int(width + 4))
-        draw.arc(bbox, start=start_deg, end=start_deg + 360.0, fill=track_color, width=int(width))
+        # Draw full background track plate and rim (neutral dark slot, no color bleed)
+        draw.arc(bbox, start=start_deg, end=start_deg + 360.0, fill=slot_rim, width=int(width + 4))
+        draw.arc(bbox, start=start_deg, end=start_deg + 360.0, fill=slot_bg, width=int(width))
 
         # Draw active progress arc or 0% baseline cap dot
         if sweep_deg > 0.5:
@@ -360,12 +372,13 @@ class IconRenderer:
         cap_r = width / 2.0
         r_mid = radius - cap_r
         span = 144.0
-        plate_color = (22, 24, 30, 235)
+        slot_bg = (26, 28, 34, 245)
+        slot_rim = (60, 65, 78, 220)
 
         if is_left_side:
             t_start, t_end = 108.0, 252.0
-            draw.arc(bbox, start=t_start, end=t_end, fill=plate_color, width=int(width + 4))
-            draw.arc(bbox, start=t_start, end=t_end, fill=track_color, width=int(width))
+            draw.arc(bbox, start=t_start, end=t_end, fill=slot_rim, width=int(width + 4))
+            draw.arc(bbox, start=t_start, end=t_end, fill=slot_bg, width=int(width))
             for deg in (t_start, t_end):
                 rad = math.radians(deg)
                 draw.ellipse(
@@ -375,7 +388,7 @@ class IconRenderer:
                         cx + r_mid * math.cos(rad) + cap_r,
                         cy + r_mid * math.sin(rad) + cap_r,
                     ),
-                    fill=track_color,
+                    fill=slot_rim,
                 )
 
             p = max(0.0, min(100.0, float(pct)))
@@ -408,8 +421,8 @@ class IconRenderer:
                 )
         else:
             t_start, t_end = 72.0, -72.0
-            draw.arc(bbox, start=-72.0, end=72.0, fill=plate_color, width=int(width + 4))
-            draw.arc(bbox, start=-72.0, end=72.0, fill=track_color, width=int(width))
+            draw.arc(bbox, start=-72.0, end=72.0, fill=slot_rim, width=int(width + 4))
+            draw.arc(bbox, start=-72.0, end=72.0, fill=slot_bg, width=int(width))
             for deg in (-72.0, 72.0):
                 rad = math.radians(deg)
                 draw.ellipse(
@@ -419,7 +432,7 @@ class IconRenderer:
                         cx + r_mid * math.cos(rad) + cap_r,
                         cy + r_mid * math.sin(rad) + cap_r,
                     ),
-                    fill=track_color,
+                    fill=slot_rim,
                 )
 
             p = max(0.0, min(100.0, float(pct)))
@@ -461,29 +474,25 @@ class IconRenderer:
         y1: int,
         pct: float,
         color: tuple,
-        track_color: tuple,
+        track_color: Optional[tuple] = None,
         canvas: Optional[Image.Image] = None,
     ) -> None:
-        """Draws a vertical pill-shaped level column with high-contrast plate, illuminated baseline, and progressive fill."""
+        """Draws a vertical pill-shaped level column with high-contrast neutral slot, illuminated baseline, and progressive solid fill."""
         bar_w = x1 - x0
         bar_h = y1 - y0
         pill_r = bar_w // 2
         img = canvas or getattr(draw, "_image", None)
 
-        # 1. Base slot plate (dark semi-opaque slate for maximum contrast against taskbars)
-        plate_color = (22, 24, 30, 235)
-        draw.rounded_rectangle((x0, y0, x1, y1), radius=pill_r, fill=plate_color)
+        # 1. Base slot container (neutral dark charcoal plate with subtle rim outline)
+        # Using neutral charcoal ensures empty track never glows or bleeds channel color,
+        # yielding a dramatic 6:1+ contrast ratio against the neon active fill.
+        slot_bg = (26, 28, 34, 245)
+        slot_rim = (60, 65, 78, 220)
+        draw.rounded_rectangle((x0, y0, x1, y1), radius=pill_r, fill=slot_bg, outline=slot_rim, width=4)
 
-        # 2. Track color tint + high-contrast rim outline
-        draw.rounded_rectangle((x0, y0, x1, y1), radius=pill_r, fill=track_color)
-        outline_color = (color[0], color[1], color[2], 215)
-        draw.rounded_rectangle((x0, y0, x1, y1), radius=pill_r, outline=outline_color, width=7)
-
-        # 3. Progressive Fill with calibrated baseline floor
-        # Baseline floor height: ~12% of bar height (~25px on 212px bar)
-        # Even at 0% (healthy 100% capacity remaining), the baseline floor cap visibly illuminates the meter
+        # 2. Progressive Fill with calibrated baseline floor
         p = max(0.0, min(100.0, float(pct)))
-        base_floor_h = int(bar_h * 0.12)
+        base_floor_h = 18  # ~2px on 24x24 tray icon
 
         if p <= 0.0:
             fill_h = base_floor_h
@@ -492,7 +501,7 @@ class IconRenderer:
         fill_h = min(bar_h, fill_h)
 
         if img is not None:
-            # Masked fill layer: guarantees perfect capsule bottom curvature without distortion
+            # Masked fill layer: guarantees clean horizontal meniscus inside pill silhouette
             mask = Image.new("L", (img.width, img.height), 0)
             mask_draw = ImageDraw.Draw(mask)
             mask_draw.rounded_rectangle((x0, y0, x1, y1), radius=pill_r, fill=255)
@@ -500,21 +509,21 @@ class IconRenderer:
             fill_layer = Image.new("RGBA", (img.width, img.height), (0, 0, 0, 0))
             f_draw = ImageDraw.Draw(fill_layer)
             top_y = y1 - fill_h
-            f_draw.rounded_rectangle((x0, top_y, x1, y1), radius=pill_r, fill=color)
+            f_draw.rectangle((x0, top_y, x1, y1), fill=color)
 
             masked_fill = Image.new("RGBA", (img.width, img.height), (0, 0, 0, 0))
             masked_fill.paste(fill_layer, (0, 0), mask=mask)
             img.alpha_composite(masked_fill)
         else:
             top_y = y1 - fill_h
-            draw.rounded_rectangle((x0, top_y, x1, y1), radius=min(pill_r, fill_h // 2), fill=color)
+            draw.rectangle((x0, top_y, x1, y1), fill=color)
 
         # At 0%, draw an extra luminous baseline tick line at the floor
         if p <= 0.0:
             target_img = img if img is not None else getattr(draw, "_image", None)
             d2 = ImageDraw.Draw(target_img) if target_img is not None else draw
             tick_y = y1 - base_floor_h
-            d2.line([(x0 + 10, tick_y), (x1 - 10, tick_y)], fill=(color[0], color[1], color[2], 255), width=5)
+            d2.line([(x0 + 12, tick_y), (x1 - 12, tick_y)], fill=(color[0], color[1], color[2], 255), width=4)
 
     @classmethod
     def _draw_claude_spark(
