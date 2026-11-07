@@ -519,13 +519,13 @@ class TrayController(QSystemTrayIcon):
 
                 sys_ptr = ctypes.c_uint64.from_address(d_ptr + 0xA8).value
                 if sys_ptr:
-                    self._configure_x11_tray_widget(sys_ptr, wm_class)
+                    self._configure_x11_tray_widget(sys_ptr, wm_class, is_new=True)
             else:
                 if tray is self:
                     super().show()
                 else:
                     tray.show()
-                self._configure_x11_tray_widget(sys_ptr, wm_class)
+                self._configure_x11_tray_widget(sys_ptr, wm_class, is_new=False)
         except Exception as e:
             logger.debug(f"Fallback to standard tray show ({wm_class}): {e}")
             if tray is self:
@@ -533,10 +533,13 @@ class TrayController(QSystemTrayIcon):
             else:
                 tray.show()
 
-    def _configure_x11_tray_widget(self, sys_ptr: int, wm_class: str) -> None:
-        """Configures the X11 QSystemTrayIconSys widget for crisp HiDPI rendering and unique WM_CLASS on GNOME."""
+    def _configure_x11_tray_widget(self, sys_ptr: int, wm_class: str, is_new: bool = True) -> None:
+        """Configures the X11 QSystemTrayIconSys widget to match the XEmbed socket size and unique WM_CLASS on GNOME."""
         try:
             w = sip.wrapinstance(sys_ptr, QWidget)
+            # Override Qt6's hardcoded QSystemTrayIconSys minimumSize(22, 22) so the widget
+            # can shrink to 16x16 X11 pixels (20x20 screen px at 1.25x) without parent clipping.
+            w.setMinimumSize(12, 12)
             w.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, False)
             w.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
             w.setAutoFillBackground(True)
@@ -581,20 +584,24 @@ class TrayController(QSystemTrayIcon):
                         ctypes.POINTER(ctypes.c_void_p),
                         ctypes.POINTER(ctypes.c_uint),
                     ]
+                    x11.XGetGeometry.argtypes = [
+                        ctypes.c_void_p,
+                        ctypes.c_ulong,
+                        ctypes.POINTER(ctypes.c_ulong),
+                        ctypes.POINTER(ctypes.c_int),
+                        ctypes.POINTER(ctypes.c_int),
+                        ctypes.POINTER(ctypes.c_uint),
+                        ctypes.POINTER(ctypes.c_uint),
+                        ctypes.POINTER(ctypes.c_uint),
+                        ctypes.POINTER(ctypes.c_uint),
+                    ]
                     x11.XResizeWindow.argtypes = [
                         ctypes.c_void_p,
                         ctypes.c_ulong,
                         ctypes.c_uint,
                         ctypes.c_uint,
                     ]
-                    x11.XMoveResizeWindow.argtypes = [
-                        ctypes.c_void_p,
-                        ctypes.c_ulong,
-                        ctypes.c_int,
-                        ctypes.c_int,
-                        ctypes.c_uint,
-                        ctypes.c_uint,
-                    ]
+                    x11.XFree.argtypes = [ctypes.c_void_p]
                     x11.XFlush.argtypes = [ctypes.c_void_p]
                     x11.XCloseDisplay.argtypes = [ctypes.c_void_p]
 
@@ -616,12 +623,12 @@ class TrayController(QSystemTrayIcon):
                                 dpy, wid, atom, 31, 8, 0, res_name, len(res_name)
                             )
 
-                    # 3. Check and resize parent / child windows in XEmbed
+                    # 3. Synchronize child window size with XEmbed parent socket so it is never clipped
                     root = ctypes.c_ulong()
                     parent = ctypes.c_ulong()
                     children = ctypes.c_void_p()
                     nchildren = ctypes.c_uint()
-                    x11.XQueryTree(
+                    ret = x11.XQueryTree(
                         dpy,
                         wid,
                         ctypes.byref(root),
@@ -629,9 +636,36 @@ class TrayController(QSystemTrayIcon):
                         ctypes.byref(children),
                         ctypes.byref(nchildren),
                     )
-                    if parent.value and parent.value != root.value:
-                        x11.XResizeWindow(dpy, parent.value, 32, 32)
-                    x11.XMoveResizeWindow(dpy, wid, 0, 0, 32, 32)
+                    if children.value:
+                        x11.XFree(children)
+
+                    if ret and parent.value and parent.value != root.value:
+                        p_root = ctypes.c_ulong()
+                        px = ctypes.c_int()
+                        py = ctypes.c_int()
+                        pw = ctypes.c_uint()
+                        ph = ctypes.c_uint()
+                        p_bw = ctypes.c_uint()
+                        p_depth = ctypes.c_uint()
+                        if x11.XGetGeometry(
+                            dpy,
+                            parent.value,
+                            ctypes.byref(p_root),
+                            ctypes.byref(px),
+                            ctypes.byref(py),
+                            ctypes.byref(pw),
+                            ctypes.byref(ph),
+                            ctypes.byref(p_bw),
+                            ctypes.byref(p_depth),
+                        ):
+                            if pw.value >= 12 and ph.value >= 12:
+                                side = max(12, min(64, min(int(pw.value), int(ph.value))))
+                                x11.XResizeWindow(dpy, wid, side, side)
+                                dpr = max(1.0, float(w.devicePixelRatioF()))
+                                logical_side = max(12, int(round(side / dpr)))
+                                if w.width() != logical_side or w.height() != logical_side:
+                                    w.resize(logical_side, logical_side)
+
                     x11.XFlush(dpy)
                     x11.XCloseDisplay(dpy)
                     w.update()
@@ -641,8 +675,10 @@ class TrayController(QSystemTrayIcon):
                     logger.debug(f"XEmbed property configuration failed: {ex}")
 
             _setup_xembed_properties()
-            for delay_ms in (50, 250, 800, 1500):
-                QTimer.singleShot(delay_ms, _setup_xembed_properties)
+            if is_new or wid not in self._x11_configured:
+                self._x11_configured.add(wid)
+                for delay_ms in (50, 250, 800, 1500):
+                    QTimer.singleShot(delay_ms, _setup_xembed_properties)
         except Exception as e:
             logger.debug(f"Failed configuring X11 tray widget: {e}")
 
@@ -843,6 +879,25 @@ class TrayController(QSystemTrayIcon):
                 ctypes.POINTER(ctypes.c_void_p),
                 ctypes.POINTER(ctypes.c_uint),
             ]
+            x11.XGetGeometry.argtypes = [
+                ctypes.c_void_p,
+                ctypes.c_ulong,
+                ctypes.POINTER(ctypes.c_ulong),
+                ctypes.POINTER(ctypes.c_int),
+                ctypes.POINTER(ctypes.c_int),
+                ctypes.POINTER(ctypes.c_uint),
+                ctypes.POINTER(ctypes.c_uint),
+                ctypes.POINTER(ctypes.c_uint),
+                ctypes.POINTER(ctypes.c_uint),
+            ]
+            x11.XResizeWindow.argtypes = [
+                ctypes.c_void_p,
+                ctypes.c_ulong,
+                ctypes.c_uint,
+                ctypes.c_uint,
+            ]
+            x11.XFree.argtypes = [ctypes.c_void_p]
+            x11.XFlush.argtypes = [ctypes.c_void_p]
             x11.XCloseDisplay.argtypes = [ctypes.c_void_p]
 
             dpy = x11.XOpenDisplay(None)
@@ -882,15 +937,16 @@ class TrayController(QSystemTrayIcon):
                         ctypes.byref(children),
                         ctypes.byref(nchildren),
                     )
+                    if children.value:
+                        x11.XFree(children)
 
-                    geom = tray.geometry()
-                    # An icon is orphaned if XQueryTree failed, parent is root (not embedded),
-                    # or geometry collapsed to top-left (0, 0)
+                    # An icon is orphaned ONLY if XQueryTree failed or its parent is root_wid (not embedded in tray socket).
+                    # Never treat a docked window (p.value != root_wid) as orphaned based on geom.x() == 0,
+                    # because unmapping an already-embedded XEmbed plug breaks Mutter's GtkSocket SubstructureRedirectMask!
                     is_orphaned = (
                         not ret
                         or not p.value
                         or p.value == root_wid
-                        or (geom.x() == 0 and geom.y() == 0)
                     )
 
                     if is_orphaned:
@@ -899,13 +955,42 @@ class TrayController(QSystemTrayIcon):
                             self._redock_attempts[wm_class] = attempts + 1
                             logger.info(
                                 f"Detected orphaned/undocked X11 tray icon {wm_class} "
-                                f"(wid={hex(wid)}, parent={hex(p.value)}, geom={geom}, attempt {attempts + 1})"
+                                f"(wid={hex(wid)}, parent={hex(p.value)}, attempt {attempts + 1})"
                             )
                             # Re-dock by sending SYSTEM_TRAY_REQUEST_DOCK
                             self._redock_x11_window(wid, wm_class)
-                            self._configure_x11_tray_widget(sys_ptr, wm_class)
+                            self._configure_x11_tray_widget(sys_ptr, wm_class, is_new=True)
                     else:
                         self._redock_attempts[wm_class] = 0
+                        # Ensure embedded child window size stays synchronized with parent socket size
+                        p_root = ctypes.c_ulong()
+                        px = ctypes.c_int()
+                        py = ctypes.c_int()
+                        pw = ctypes.c_uint()
+                        ph = ctypes.c_uint()
+                        p_bw = ctypes.c_uint()
+                        p_depth = ctypes.c_uint()
+                        if x11.XGetGeometry(
+                            dpy,
+                            p.value,
+                            ctypes.byref(p_root),
+                            ctypes.byref(px),
+                            ctypes.byref(py),
+                            ctypes.byref(pw),
+                            ctypes.byref(ph),
+                            ctypes.byref(p_bw),
+                            ctypes.byref(p_depth),
+                        ):
+                            if pw.value >= 12 and ph.value >= 12:
+                                side = max(12, min(64, min(int(pw.value), int(ph.value))))
+                                dpr = max(1.0, float(w.devicePixelRatioF()))
+                                logical_side = max(12, int(round(side / dpr)))
+                                if w.width() != logical_side or w.height() != logical_side:
+                                    w.setMinimumSize(12, 12)
+                                    x11.XResizeWindow(dpy, wid, side, side)
+                                    x11.XFlush(dpy)
+                                    w.resize(logical_side, logical_side)
+                                    w.update()
                 except Exception as ex:
                     logger.debug(f"Error inspecting tray {wm_class}: {ex}")
         finally:

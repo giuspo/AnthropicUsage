@@ -179,3 +179,29 @@ def test_high_contrast_slot_and_fill_distinction():
     assert contrast_ratio >= 4.0, f"Contrast ratio between fill and slot must be >= 4.0, got {contrast_ratio:.2f}"
 
 
+def test_small_socket_16x16_and_20x20_dual_bars_at_9pct():
+    """Validates that at 16x16 and 20x20 XEmbed socket sizes, both 5h (9%) and 7d (11%) bars are unclipped and distinct."""
+    for sz in (16, 20):
+        img = IconRenderer.render_pil_image(
+            five_hour_pct=9.0,
+            seven_day_pct=11.0,
+            style="bars",
+            provider_type="antigravity_gemini",
+            target_size=sz,
+        )
+        left_x = sz // 4
+        center_x = sz // 2
+        right_x = sz - 1 - (sz // 4)
+        fill_y = sz - 3
+
+        # Center gap must be transparent
+        assert img.getpixel((center_x, sz // 2))[3] == 0
+
+        # Both left (5h=9%) and right (7d=11%) bars must have bright neon fill near bottom
+        r_l, g_l, b_l, a_l = img.getpixel((left_x, fill_y))
+        r_r, g_r, b_r, a_r = img.getpixel((right_x, fill_y))
+        assert a_l >= 240 and b_l >= 180, f"Left bar 9% fill must be bright at {sz}x{sz}, got {(r_l, g_l, b_l, a_l)}"
+        assert a_r >= 240 and b_r >= 180, f"Right bar 11% fill must be bright at {sz}x{sz}, got {(r_r, g_r, b_r, a_r)}"
+
+
+

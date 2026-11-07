@@ -35,6 +35,27 @@ class IconRenderer:
     TARGET_SIZE = 64  # Downsampled target size for HiDPI tray
 
     @classmethod
+    def _pil_to_qpixmap(cls, img: Image.Image) -> QPixmap:
+        """Converts an RGBA PIL Image to a QPixmap."""
+        byte_arr = io.BytesIO()
+        img.save(byte_arr, format="PNG")
+        qimg = QImage.fromData(byte_arr.getvalue())
+        return QPixmap.fromImage(qimg)
+
+    @classmethod
+    def _downsample_canvas(cls, canvas: Image.Image, target_size: int) -> Image.Image:
+        """Downsamples the 256x256 master canvas to target_size using Lanczos without alpha ringing."""
+        res = canvas.resize((target_size, target_size), Image.Resampling.LANCZOS)
+        pix = res.load()
+        w_px, h_px = res.size
+        for y in range(h_px):
+            for x in range(w_px):
+                r_val, g_val, b_val, a_val = pix[x, y]
+                if a_val < 10:
+                    pix[x, y] = (0, 0, 0, 0)
+        return res
+
+    @classmethod
     def render_tray_icon(
         cls,
         five_hour_pct: float,
@@ -45,21 +66,22 @@ class IconRenderer:
         size: int = TARGET_SIZE,
         argon_pct: Optional[float] = None,
     ) -> QIcon:
-        """Generates a QIcon representing current quota utilization with dual indicators and optional Argon alert badge."""
-        img = cls.render_pil_image(
+        """Generates a multi-resolution QIcon representing current quota utilization with dual indicators and optional Argon alert badge."""
+        master = cls._render_master_canvas(
             five_hour_pct=five_hour_pct,
             seven_day_pct=seven_day_pct,
             is_offline=is_offline,
             style=style,
             provider_type=provider_type,
-            target_size=size,
             argon_pct=argon_pct,
         )
-        byte_arr = io.BytesIO()
-        img.save(byte_arr, format="PNG")
-        qimg = QImage.fromData(byte_arr.getvalue())
-        pixmap = QPixmap.fromImage(qimg)
-        return QIcon(pixmap)
+        icon = QIcon()
+        sizes = {16, 20, 22, 24, 32, 48, 64, int(size)}
+        for sz in sorted(sizes):
+            if sz > 0:
+                scaled = cls._downsample_canvas(master, sz)
+                icon.addPixmap(cls._pil_to_qpixmap(scaled))
+        return icon
 
     @classmethod
     def render_pil_image(
@@ -73,6 +95,27 @@ class IconRenderer:
         argon_pct: Optional[float] = None,
     ) -> Image.Image:
         """Draws the 256x256 vector supersampled icon and downsamples to target_size."""
+        master = cls._render_master_canvas(
+            five_hour_pct=five_hour_pct,
+            seven_day_pct=seven_day_pct,
+            is_offline=is_offline,
+            style=style,
+            provider_type=provider_type,
+            argon_pct=argon_pct,
+        )
+        return cls._downsample_canvas(master, target_size)
+
+    @classmethod
+    def _render_master_canvas(
+        cls,
+        five_hour_pct: float,
+        seven_day_pct: Optional[float] = None,
+        is_offline: bool = False,
+        style: str = "concentric",
+        provider_type: str = "claude",
+        argon_pct: Optional[float] = None,
+    ) -> Image.Image:
+        """Draws the 256x256 master vector canvas prior to multi-resolution Lanczos downsampling."""
         dim = cls.CANVAS_SIZE
         img = Image.new("RGBA", (dim, dim), (0, 0, 0, 0))
         draw = ImageDraw.Draw(img)
@@ -111,14 +154,14 @@ class IconRenderer:
 
         if style == "bars":
             # STYLE C: DUAL VERTICAL PILL COLUMNS (Left 5h, Right 7d)
-            # High-contrast neutral charcoal slot plates with vivid neon progress fill
-            # Left column: x0=32..116 (w=84), Right column: x0=140..224 (w=84), Gap=24px crisp separation
+            # Grid-aligned for 16x16, 20x20, 24x24, and 32x32 XEmbed / StatusNotifier sockets:
+            # Left column: x0=24..112 (w=88), Right column: x0=144..232 (w=88), Center gap=32px (exact 2px at 16x16)
             cls._draw_vertical_pill_bar(
                 draw=draw,
-                x0=32,
-                y0=24,
-                x1=116,
-                y1=232,
+                x0=24,
+                y0=16,
+                x1=112,
+                y1=240,
                 pct=p_5h,
                 color=color_5h,
                 track_color=track_5h,
@@ -126,10 +169,10 @@ class IconRenderer:
             )
             cls._draw_vertical_pill_bar(
                 draw=draw,
-                x0=140,
-                y0=24,
-                x1=224,
-                y1=232,
+                x0=144,
+                y0=16,
+                x1=232,
+                y1=240,
                 pct=p_7d,
                 color=color_7d,
                 track_color=track_7d,
@@ -207,16 +250,7 @@ class IconRenderer:
                 bx, by, brad = 210.0, 46.0, 26.0
             cls._draw_argon_badge(draw, bx, by, argon_pct, radius=brad)
 
-        res = img.resize((target_size, target_size), Image.Resampling.LANCZOS)
-        # Suppress any Lanczos antialiasing ringing on fully/mostly transparent pixels
-        pix = res.load()
-        w_px, h_px = res.size
-        for y in range(h_px):
-            for x in range(w_px):
-                r_val, g_val, b_val, a_val = pix[x, y]
-                if a_val < 10:
-                    pix[x, y] = (0, 0, 0, 0)
-        return res
+        return img
 
     @classmethod
     def _draw_center_glyph(
@@ -487,17 +521,22 @@ class IconRenderer:
         # Using neutral charcoal ensures empty track never glows or bleeds channel color,
         # yielding a dramatic 6:1+ contrast ratio against the neon active fill.
         slot_bg = (26, 28, 34, 245)
-        slot_rim = (60, 65, 78, 220)
-        draw.rounded_rectangle((x0, y0, x1, y1), radius=pill_r, fill=slot_bg, outline=slot_rim, width=4)
+        slot_rim = (68, 74, 88, 235)
+        draw.rounded_rectangle((x0, y0, x1, y1), radius=pill_r, fill=slot_bg, outline=slot_rim, width=5)
 
-        # 2. Progressive Fill with calibrated baseline floor
+        # 2. Progressive Fill with calibrated baseline floor and perceptual low-range boost
         p = max(0.0, min(100.0, float(pct)))
-        base_floor_h = 18  # ~2px on 24x24 tray icon
+        base_floor_h = max(14, int(bar_h * 0.08))  # ~1-2px subtle bottom anchor at 0%
 
         if p <= 0.0:
             fill_h = base_floor_h
+            fill_color = (color[0], color[1], color[2], 150)
         else:
-            fill_h = base_floor_h + int((p / 100.0) * (bar_h - base_floor_h))
+            # Any active usage (> 0%) clears the bottom rounded cap so even 1-9% is unmistakably visible
+            min_active_h = max(base_floor_h + 6, min(bar_h, max(int(bar_h * 0.20), pill_r + 2)))
+            norm = (p / 100.0) ** 0.85
+            fill_h = min_active_h + int(norm * (bar_h - min_active_h))
+            fill_color = (color[0], color[1], color[2], 255)
         fill_h = min(bar_h, fill_h)
 
         if img is not None:
@@ -509,21 +548,21 @@ class IconRenderer:
             fill_layer = Image.new("RGBA", (img.width, img.height), (0, 0, 0, 0))
             f_draw = ImageDraw.Draw(fill_layer)
             top_y = y1 - fill_h
-            f_draw.rectangle((x0, top_y, x1, y1), fill=color)
+            f_draw.rectangle((x0, top_y, x1, y1), fill=fill_color)
 
             masked_fill = Image.new("RGBA", (img.width, img.height), (0, 0, 0, 0))
             masked_fill.paste(fill_layer, (0, 0), mask=mask)
             img.alpha_composite(masked_fill)
         else:
             top_y = y1 - fill_h
-            draw.rectangle((x0, top_y, x1, y1), fill=color)
+            draw.rectangle((x0, top_y, x1, y1), fill=fill_color)
 
-        # At 0%, draw an extra luminous baseline tick line at the floor
+        # At 0%, draw an extra baseline tick line at the floor
         if p <= 0.0:
             target_img = img if img is not None else getattr(draw, "_image", None)
             d2 = ImageDraw.Draw(target_img) if target_img is not None else draw
             tick_y = y1 - base_floor_h
-            d2.line([(x0 + 12, tick_y), (x1 - 12, tick_y)], fill=(color[0], color[1], color[2], 255), width=4)
+            d2.line([(x0 + 14, tick_y), (x1 - 14, tick_y)], fill=(color[0], color[1], color[2], 210), width=4)
 
     @classmethod
     def _draw_claude_spark(
