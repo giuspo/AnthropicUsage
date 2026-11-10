@@ -94,11 +94,14 @@ def main() -> None:
     engine.snapshot_updated.connect(tray.update_snapshot)
 
     def trigger_refresh() -> None:
-        asyncio.create_task(engine.refresh())
+        asyncio.create_task(engine.refresh(force=True))
 
     def on_logout() -> None:
         engine.auth_manager.clear()
-        asyncio.create_task(engine.refresh())
+        engine.api_client.retry_after_until = None
+        engine.api_client.last_status_code = None
+        engine.api_client.last_successful_snapshot = None
+        asyncio.create_task(engine.refresh(force=True))
 
     flyout.refresh_requested.connect(trigger_refresh)
     flyout.settings_saved.connect(tray.on_settings_saved)

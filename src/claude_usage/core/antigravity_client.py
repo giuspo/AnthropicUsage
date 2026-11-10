@@ -34,6 +34,7 @@ class AntigravityApiClient:
         self.timeout = timeout_sec
         self.last_status_code: Optional[int] = None
         self.retry_after_until: Optional[datetime] = None
+        self.last_successful_snapshot: Optional[AntigravityUsageSnapshot] = None
 
     def _discover_local_hub(self) -> Optional[tuple[int, str]]:
         """Discovers active local Antigravity LanguageServer daemon port and CSRF token.
@@ -69,15 +70,24 @@ class AntigravityApiClient:
         return None
 
     async def fetch_usage(
-        self, auth: AuthState, mock: bool = False, retry_on_401: bool = True
+        self, auth: AuthState, mock: bool = False, retry_on_401: bool = True, force: bool = False
     ) -> AntigravityUsageSnapshot:
         """Fetches quota utilization snapshot for Google AI Pro."""
         if mock or auth.provider == AuthProviderType.MOCK:
             return self._generate_mock_snapshot()
 
         now = datetime.now(timezone.utc)
+        if force:
+            self.retry_after_until = None
+
         if self.retry_after_until and now < self.retry_after_until:
             wait_rem = int((self.retry_after_until - now).total_seconds())
+            if self.last_successful_snapshot:
+                import copy
+                cached = copy.deepcopy(self.last_successful_snapshot)
+                cached.is_rate_limited = True
+                cached.status_label = f"Cooldown Google API ({wait_rem}s)"
+                return cached
             return AntigravityUsageSnapshot(
                 is_rate_limited=True,
                 status_label=f"Cooldown Google API ({wait_rem}s)",
@@ -371,7 +381,7 @@ class AntigravityApiClient:
             )
         )
         snap.gemini_models = gem_models
-
+        self.last_successful_snapshot = snap
         return snap
 
     def _build_usage_window(self, util_pct: float, reset_time_str: Optional[str]) -> UsageWindow:

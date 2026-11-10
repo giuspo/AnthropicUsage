@@ -61,6 +61,7 @@ class UsageFusionEngine(QObject):
         self._stop_event: Optional[asyncio.Event] = None
         self._watcher_task: Optional[asyncio.Task] = None
         self._poller_task: Optional[asyncio.Task] = None
+        self._debounce_api_task: Optional[asyncio.Task] = None
         self._last_fs_activity: float = 0.0
         self._history: list[tuple[float, float, int]] = []  # (timestamp, utilization_pct, total_tokens)
 
@@ -102,17 +103,25 @@ class UsageFusionEngine(QObject):
         if self._watcher_task:
             self._watcher_task.cancel()
             tasks.append(self._watcher_task)
+        if self._debounce_api_task:
+            self._debounce_api_task.cancel()
+            tasks.append(self._debounce_api_task)
 
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
 
-    async def refresh(self) -> CompositeUsageSnapshot:
+    async def refresh(self, force: bool = False) -> CompositeUsageSnapshot:
         """Executes a full data refresh cycle across active providers."""
         try:
             # 1. Refresh Claude Code if enabled
             if getattr(self.config, "enable_claude", True):
+                self.api_client.min_interval_sec = max(
+                    240.0, float(getattr(self.config, "poll_interval_active_sec", 240))
+                )
                 auth = await self.auth_manager.refresh_if_expired()
-                api_snap = await self.api_client.fetch_usage(auth, mock=self.config.mock_mode)
+                api_snap = await self.api_client.fetch_usage(
+                    auth, mock=self.config.mock_mode, force=force
+                )
                 tokens, project_name = self.jsonl_parser.parse_recent_window(window_hours=5)
 
                 if not api_snap.is_rate_limited:
@@ -120,6 +129,12 @@ class UsageFusionEngine(QObject):
                 else:
                     self._current_snapshot.is_rate_limited = True
                     self._current_snapshot.status_label = api_snap.status_label
+                    # Maintain last known percentages and reset timers from cache during cooldown
+                    if api_snap.five_hour.utilization_pct > 0 or api_snap.seven_day.utilization_pct > 0:
+                        self._current_snapshot.five_hour = api_snap.five_hour
+                        self._current_snapshot.seven_day = api_snap.seven_day
+                        self._current_snapshot.seven_day_sonnet = api_snap.seven_day_sonnet
+                        self._current_snapshot.seven_day_opus = api_snap.seven_day_opus
 
                 self._current_snapshot.tokens = tokens
                 if project_name and project_name != "Claude Code":
@@ -158,7 +173,9 @@ class UsageFusionEngine(QObject):
             # 2. Refresh Google Antigravity if enabled
             if getattr(self.config, "enable_antigravity", True):
                 g_auth = await self.antigravity_auth.refresh_if_expired()
-                g_snap = await self.antigravity_client.fetch_usage(g_auth, mock=self.config.mock_mode)
+                g_snap = await self.antigravity_client.fetch_usage(
+                    g_auth, mock=self.config.mock_mode, force=force
+                )
                 self._current_antigravity = g_snap
 
                 # Evaluate Antigravity alert thresholds for Gemini pool
@@ -250,21 +267,37 @@ class UsageFusionEngine(QObject):
         self._current_snapshot.anomaly_reason = None
 
     async def _poll_loop(self) -> None:
-        """Background adaptive polling heartbeat."""
+        """Background adaptive polling heartbeat with random jitter (±15%) for human-like cadence."""
+        import random
+
         while self._is_running:
-            interval = self.config.poll_interval_idle_sec
+            base_interval = max(300, int(self.config.poll_interval_idle_sec))
+            jittered_interval = base_interval * random.uniform(0.85, 1.15)
             try:
-                await asyncio.sleep(interval)
+                await asyncio.sleep(jittered_interval)
                 if self._is_running:
-                    await self.refresh()
+                    await self.refresh(force=False)
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 logger.debug(f"Poller loop error: {e}")
-                await asyncio.sleep(30)
+                await asyncio.sleep(60)
+
+    async def _delayed_api_refresh(self, delay_sec: float) -> None:
+        """Sliding debounce task: waits for silence on .jsonl before querying remote quota API."""
+        try:
+            await asyncio.sleep(delay_sec)
+            if self._is_running:
+                await self.refresh(force=False)
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logger.debug(f"Debounced API refresh error: {e}")
 
     async def _watch_fs_loop(self) -> None:
         """Watches local ~/.claude/projects/ and ~/.gemini/antigravity/brain/ for real-time turn activity."""
+        import random
+
         watch_dirs: list[Path] = []
         if self.jsonl_parser.projects_dir.exists():
             watch_dirs.append(self.jsonl_parser.projects_dir)
@@ -282,9 +315,29 @@ class UsageFusionEngine(QObject):
                     break
                 has_jsonl = any(path.endswith(".jsonl") for _, path in changes)
                 if has_jsonl:
-                    # Debounce: wait 15 seconds after typing before polling API
-                    await asyncio.sleep(15)
-                    await self.refresh()
+                    # 1. Update local token metrics immediately without network latency or API rate limits
+                    try:
+                        tokens, project_name = self.jsonl_parser.parse_recent_window(window_hours=5)
+                        self._current_snapshot.tokens = tokens
+                        if project_name and project_name != "Claude Code":
+                            self._current_snapshot.workspace_name = project_name
+                        self._current_composite = CompositeUsageSnapshot(
+                            claude=self._current_snapshot,
+                            antigravity=self._current_antigravity,
+                            last_updated=datetime.now(),
+                        )
+                        self.composite_updated.emit(self._current_composite)
+                        self.snapshot_updated.emit(self._current_composite)
+                    except Exception as ex:
+                        logger.debug(f"Local token fast update error: {ex}")
+
+                    # 2. True sliding debounce (60-75s of silence): reset timer on every write chunk
+                    if self._debounce_api_task and not self._debounce_api_task.done():
+                        self._debounce_api_task.cancel()
+                    quiet_delay = 60.0 + random.uniform(0.0, 15.0)
+                    self._debounce_api_task = asyncio.create_task(
+                        self._delayed_api_refresh(quiet_delay)
+                    )
         except asyncio.CancelledError:
             pass
         except Exception as e:

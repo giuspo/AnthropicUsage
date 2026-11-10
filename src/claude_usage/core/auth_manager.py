@@ -46,20 +46,36 @@ class AuthManager:
         return state
 
     def _resolve_credentials(self) -> AuthState:
-        # Priority 1: Keyring / Credential Manager (CLI session)
+        # Collect available credential candidates
+        candidates: list[AuthState] = []
+
         keyring_state = self._read_os_keyring()
         if keyring_state and keyring_state.is_valid:
-            return keyring_state
+            candidates.append(keyring_state)
 
-        # Priority 2: File ~/.claude/.credentials.json
         file_state = self._read_credentials_file()
         if file_state and file_state.is_valid:
-            return file_state
+            candidates.append(file_state)
 
-        # Priority 3: Environment variable CLAUDE_CODE_OAUTH_TOKEN
         env_state = self._read_env()
         if env_state and env_state.is_valid:
-            return env_state
+            candidates.append(env_state)
+
+        if candidates:
+            # Prefer active non-expired credentials with the highest/freshest expires_at
+            valid_unexpired = [c for c in candidates if not c.is_expired()]
+            if valid_unexpired:
+                best = max(valid_unexpired, key=lambda c: c.expires_at or 0)
+                # Auto-heal: if file credentials are fresher than keyring, sync them back
+                if best is file_state and (not keyring_state or keyring_state.is_expired()):
+                    try:
+                        self._persist_credentials(best)
+                    except Exception:
+                        pass
+                return best
+
+            # If all are expired, pick the candidate with the most recent expiration for token renewal
+            return max(candidates, key=lambda c: c.expires_at or 0)
 
         # Priority 4: Manual Key or Token (Enterprise Admin or Direct OAuth)
         if self.admin_api_key:
@@ -243,14 +259,30 @@ class AuthManager:
     async def _post_refresh_request(
         self, payload: dict, headers: dict
     ) -> tuple[int, dict, str]:
-        """Internal helper to execute the token refresh POST request."""
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.post(CLAUDE_OAUTH_TOKEN_URL, json=payload, headers=headers)
+        """Internal helper to execute the token refresh POST request with fallback."""
+        urls = [
+            CLAUDE_OAUTH_TOKEN_URL,
+            "https://console.anthropic.com/v1/oauth/token",
+        ]
+        last_code = 500
+        last_data: dict = {}
+        last_text = ""
+        for url in urls:
             try:
-                data = resp.json()
-            except Exception:
-                data = {}
-            return resp.status_code, data, resp.text
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    resp = await client.post(url, json=payload, headers=headers)
+                    try:
+                        data = resp.json()
+                    except Exception:
+                        data = {}
+                    if resp.status_code == 200:
+                        return resp.status_code, data, resp.text
+                    last_code = resp.status_code
+                    last_data = data
+                    last_text = resp.text
+            except Exception as ex:
+                last_text = str(ex)
+        return last_code, last_data, last_text
 
     async def refresh_token(self, force: bool = False) -> bool:
         """Executes OAuth token refresh with Anthropic, rotating credentials and persisting them."""

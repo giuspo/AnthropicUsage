@@ -3,7 +3,7 @@
 
 #define MyAppName "Claude & Antigravity Usage Widget"
 #ifndef MyAppVersion
-#define MyAppVersion "2.1.17"
+#define MyAppVersion "2.1.18"
 #endif
 #define MyAppPublisher "giuspo"
 #define MyAppExeName "ClaudeUsageWidget.exe"

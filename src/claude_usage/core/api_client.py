@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -24,21 +25,49 @@ class ApiClient:
         self.timeout = timeout_sec
         self.last_status_code: Optional[int] = None
         self.retry_after_until: Optional[datetime] = None
+        self.last_429_time: Optional[datetime] = None
+        self.last_successful_snapshot: Optional[UsageSnapshot] = None
+        self.last_request_time: Optional[datetime] = None
+        self.min_interval_sec: float = 240.0  # Safe 4-minute minimum between automatic API calls
 
-    async def fetch_usage(self, auth: AuthState, mock: bool = False) -> UsageSnapshot:
+    async def fetch_usage(
+        self, auth: AuthState, mock: bool = False, force: bool = False
+    ) -> UsageSnapshot:
         """Fetches quota utilization snapshot based on auth credentials."""
         if mock or auth.provider == AuthProviderType.MOCK:
             return self._generate_mock_snapshot()
 
-        # Check if currently rate-limited by Retry-After
         now = datetime.now(timezone.utc)
+
+        # If user forces manual refresh, only clear cooldown if at least 60s have passed since last 429
+        # (prevents rapid manual clicks during a 429 from triggering Cloudflare anti-abuse bans)
+        if force:
+            if not self.last_429_time or (now - self.last_429_time).total_seconds() >= 60.0:
+                self.retry_after_until = None
+
+        # Check if currently rate-limited by Retry-After
         if self.retry_after_until and now < self.retry_after_until:
             wait_rem = int((self.retry_after_until - now).total_seconds())
             logger.info(f"In cooldown rate-limit, waiting {wait_rem}s")
+            if self.last_successful_snapshot:
+                cached = copy.deepcopy(self.last_successful_snapshot)
+                cached.is_rate_limited = True
+                cached.status_label = f"Cooldown API ({wait_rem}s)"
+                return cached
             snap = UsageSnapshot()
             snap.is_rate_limited = True
             snap.status_label = f"Cooldown API ({wait_rem}s)"
             return snap
+
+        # Throttle frequent polling to protect Anthropic OAuth endpoint
+        if (
+            not force
+            and self.last_request_time
+            and (now - self.last_request_time).total_seconds() < self.min_interval_sec
+            and self.last_successful_snapshot is not None
+        ):
+            logger.debug("Returning throttled cached snapshot to prevent 429")
+            return copy.deepcopy(self.last_successful_snapshot)
 
         if not auth.is_valid:
             snap = UsageSnapshot()
@@ -69,7 +98,7 @@ class ApiClient:
             "Authorization": f"Bearer {auth.access_token}",
             "anthropic-beta": "oauth-2025-04-20",
             "Accept": "application/json",
-            "User-Agent": "claude-code/widget",
+            "User-Agent": "claude-code/1.0",
         }
 
         try:
@@ -90,7 +119,7 @@ class ApiClient:
                     else None
                 )
 
-                return UsageSnapshot(
+                snap = UsageSnapshot(
                     five_hour=five_h,
                     seven_day=seven_d,
                     seven_day_sonnet=sonnet,
@@ -98,13 +127,26 @@ class ApiClient:
                     workspace_name=auth.workspace_name,
                     status_label=f"🟢 Connesso via OAuth ({auth.subscription_type.capitalize()})",
                 )
+                self.last_successful_snapshot = snap
+                self.last_request_time = datetime.now(timezone.utc)
+                return snap
+
             elif status_code == 429:
-                delay = int(retry_header) if retry_header and retry_header.isdigit() else 120
-                self.retry_after_until = datetime.now(timezone.utc) + timedelta(seconds=delay)
+                delay = int(retry_header) if retry_header and retry_header.isdigit() else 300
+                # Respect Anthropic's Retry-After (between 3 min and 30 min) to avoid anti-abuse penalties
+                delay = min(max(delay, 180), 1800)
+                now_utc = datetime.now(timezone.utc)
+                self.last_429_time = now_utc
+                self.retry_after_until = now_utc + timedelta(seconds=delay)
                 logger.warning(f"HTTP 429 on OAuth usage API. Cooldown for {delay}s")
+                if self.last_successful_snapshot:
+                    cached = copy.deepcopy(self.last_successful_snapshot)
+                    cached.is_rate_limited = True
+                    cached.status_label = f"Cooldown API ({delay}s)"
+                    return cached
                 return UsageSnapshot(
                     is_rate_limited=True,
-                    status_label="🟡 Rate Limited (Cache Attiva)",
+                    status_label=f"Cooldown API ({delay}s)",
                     workspace_name=auth.workspace_name,
                 )
             elif status_code == 401:
@@ -117,12 +159,22 @@ class ApiClient:
                         logger.info("Auto-refresh succeeded! Retrying quota request with new token...")
                         return await self._fetch_oauth_usage(fresh_auth, retry_on_401=False)
 
+                if self.last_successful_snapshot:
+                    cached = copy.deepcopy(self.last_successful_snapshot)
+                    cached.is_offline = True
+                    cached.status_label = "🔴 Token Scaduto / Riconnetti"
+                    return cached
                 return UsageSnapshot(
                     is_offline=True,
                     status_label="🔴 Token Scaduto / Riconnetti",
                     workspace_name=auth.workspace_name,
                 )
             else:
+                if self.last_successful_snapshot:
+                    cached = copy.deepcopy(self.last_successful_snapshot)
+                    cached.is_offline = True
+                    cached.status_label = f"Errore API ({status_code})"
+                    return cached
                 return UsageSnapshot(
                     is_offline=True,
                     status_label=f"Errore API ({status_code})",
@@ -130,6 +182,11 @@ class ApiClient:
                 )
         except Exception as e:
             logger.debug(f"HTTP request error: {e}")
+            if self.last_successful_snapshot:
+                cached = copy.deepcopy(self.last_successful_snapshot)
+                cached.is_offline = True
+                cached.status_label = "Offline / Errore Rete"
+                return cached
             return UsageSnapshot(is_offline=True, status_label="Offline / Errore Rete")
 
     async def _fetch_admin_usage(self, auth: AuthState) -> UsageSnapshot:
