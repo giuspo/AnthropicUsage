@@ -8,7 +8,7 @@ import webbrowser
 from pathlib import Path
 from typing import Optional
 
-from PyQt6.QtCore import QEvent, QObject, QRect, QTimer, Qt, pyqtSignal
+from PyQt6.QtCore import QEvent, QObject, QPoint, QRect, QTimer, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QIcon, QPainter, QPaintEvent, QPen
 from PyQt6.QtWidgets import (
     QButtonGroup,
@@ -1597,6 +1597,20 @@ class MicroFlyoutWindow(QWidget):
         self.btn_nav_settings.setStyleSheet(active_css if index == 1 else inactive_css)
         self.btn_nav_help.setStyleSheet(active_css if index == 2 else inactive_css)
 
+    def _schedule_linux_reposition(self, expected_pos: QPoint) -> None:
+        """Re-asserts target coordinates after map so GNOME Mutter does not override initial placement."""
+        for delay_ms in (0, 40):
+            QTimer.singleShot(
+                delay_ms,
+                lambda p=expected_pos: (
+                    self.move(p)
+                    if self.isVisible()
+                    and getattr(self, "_target_flyout_pos", None) == p
+                    and self.pos() != p
+                    else None
+                ),
+            )
+
     def toggle_at_tray(self, tray_geo: QRect, target_tab: str = "overview") -> None:
         if self.isVisible():
             self.hide()
@@ -1609,8 +1623,13 @@ class MicroFlyoutWindow(QWidget):
                 self._select_metrics_subview("overview")
 
             pos = WindowPositioner.calculate_flyout_position(self.width(), self.height(), tray_geo)
+            self._target_flyout_pos = pos
             self.move(pos)
             self.show()
+            if sys.platform.startswith("linux"):
+                self.move(pos)
+                self._schedule_linux_reposition(pos)
+            self.raise_()
             self.activateWindow()
 
     def _toggle_threshold_chip(self, val: int) -> None:

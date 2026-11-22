@@ -309,15 +309,16 @@ class _LinuxTrayHoverSensor(QWidget):
         cx, tray_icon = target
         btn = event.button()
 
+        anchor_geo = QRect(cx - 8, 8, 16, 16)
         if btn == Qt.MouseButton.LeftButton:
             if tray_icon is self._controller:
-                self._controller.flyout.toggle_at_tray(tray_icon.geometry(), target_tab="claude")
+                self._controller.flyout.toggle_at_tray(anchor_geo, target_tab="claude")
             elif tray_icon is self._controller.tray_antigravity:
-                self._controller.flyout.toggle_at_tray(tray_icon.geometry(), target_tab="antigravity")
+                self._controller.flyout.toggle_at_tray(anchor_geo, target_tab="antigravity")
             elif tray_icon is self._controller.tray_partner:
-                self._controller.flyout.toggle_at_tray(tray_icon.geometry(), target_tab="antigravity_partner")
+                self._controller.flyout.toggle_at_tray(anchor_geo, target_tab="antigravity_partner")
         elif btn == Qt.MouseButton.RightButton:
-            self._controller._popup_context_menu(tray_icon.geometry())
+            self._controller._popup_context_menu(anchor_geo)
 
     def mouseDoubleClickEvent(self, event: QMouseEvent | None) -> None:
         self.mousePressEvent(event)
@@ -340,6 +341,7 @@ class TrayController(QSystemTrayIcon):
         self._use_x11_tray = sys.platform.startswith("linux") and QGuiApplication.platformName() == "xcb"
         self._x11_configured: set[int] = set()
         self._redock_attempts: dict[str, int] = {}
+        self._last_valid_tray_x: dict[int, int] = {}
         self._linux_tooltip: Optional[_LinuxTrayTooltip] = None
         self._linux_hover_sensor: Optional[_LinuxTrayHoverSensor] = None
         if self._use_x11_tray:
@@ -738,14 +740,39 @@ class TrayController(QSystemTrayIcon):
         except Exception as e:
             logger.debug(f"Failed configuring X11 tray widget: {e}")
 
+    def _get_tray_geometry(self, tray: QSystemTrayIcon) -> QRect:
+        """Returns reliable tray geometry, using cached primary-screen X when XEmbed reports (0, 0)."""
+        if not self._use_x11_tray:
+            return tray.geometry()
+
+        geom = tray.geometry()
+        primary = QGuiApplication.primaryScreen()
+        if primary is not None:
+            cx = WindowPositioner._resolve_linux_tray_center_x(geom, primary)
+            if cx is not None:
+                self._last_valid_tray_x[id(tray)] = cx
+                return geom
+
+            cached_x = self._last_valid_tray_x.get(id(tray))
+            if cached_x is not None and primary.geometry().left() <= cached_x <= primary.geometry().right():
+                return QRect(cached_x - 8, 8, 16, 16)
+
+        return QRect()
+
     def _get_active_tray_centers(self, primary) -> list[tuple[int, QSystemTrayIcon]]:
         """Returns (center_x, tray_icon) on primaryScreen() for all currently visible tray icons."""
         result: list[tuple[int, QSystemTrayIcon]] = []
+        primary_full = primary.geometry()
         for tray in (self, self.tray_antigravity, self.tray_partner):
             if tray.isVisible():
                 cx = WindowPositioner._resolve_linux_tray_center_x(tray.geometry(), primary)
                 if cx is not None:
+                    self._last_valid_tray_x[id(tray)] = cx
                     result.append((cx, tray))
+                else:
+                    cached_x = self._last_valid_tray_x.get(id(tray))
+                    if cached_x is not None and primary_full.left() <= cached_x <= primary_full.right():
+                        result.append((cached_x, tray))
         return result
 
     def _popup_context_menu(self, tray_geometry: QRect) -> None:
@@ -829,6 +856,7 @@ class TrayController(QSystemTrayIcon):
             return
         logger.info("Screen/display topology changed, verifying X11 tray docking and sensor geometry...")
         self._redock_attempts.clear()
+        self._last_valid_tray_x.clear()
         for delay in (200, 800, 2000):
             QTimer.singleShot(delay, self._verify_x11_tray_docking)
         if self._linux_hover_sensor is not None:
@@ -1107,43 +1135,46 @@ class TrayController(QSystemTrayIcon):
     def _on_claude_activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
         if self._linux_tooltip is not None:
             self._linux_tooltip.hide()
+        geom = self._get_tray_geometry(self)
         if reason in (
             QSystemTrayIcon.ActivationReason.Trigger,
             QSystemTrayIcon.ActivationReason.DoubleClick,
             QSystemTrayIcon.ActivationReason.MiddleClick,
         ):
-            self.flyout.toggle_at_tray(self.geometry(), target_tab="claude")
+            self.flyout.toggle_at_tray(geom, target_tab="claude")
         elif reason == QSystemTrayIcon.ActivationReason.Context and self._use_x11_tray:
-            self._popup_context_menu(self.geometry())
+            self._popup_context_menu(geom)
 
     def _on_antigravity_activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
         if self._linux_tooltip is not None:
             self._linux_tooltip.hide()
+        geom = self._get_tray_geometry(self.tray_antigravity)
         if reason in (
             QSystemTrayIcon.ActivationReason.Trigger,
             QSystemTrayIcon.ActivationReason.DoubleClick,
             QSystemTrayIcon.ActivationReason.MiddleClick,
         ):
-            self.flyout.toggle_at_tray(self.tray_antigravity.geometry(), target_tab="antigravity")
+            self.flyout.toggle_at_tray(geom, target_tab="antigravity")
         elif reason == QSystemTrayIcon.ActivationReason.Context and self._use_x11_tray:
-            self._popup_context_menu(self.tray_antigravity.geometry())
+            self._popup_context_menu(geom)
 
     def _on_partner_activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
         if self._linux_tooltip is not None:
             self._linux_tooltip.hide()
+        geom = self._get_tray_geometry(self.tray_partner)
         if reason in (
             QSystemTrayIcon.ActivationReason.Trigger,
             QSystemTrayIcon.ActivationReason.DoubleClick,
             QSystemTrayIcon.ActivationReason.MiddleClick,
         ):
-            self.flyout.toggle_at_tray(self.tray_partner.geometry(), target_tab="antigravity_partner")
+            self.flyout.toggle_at_tray(geom, target_tab="antigravity_partner")
         elif reason == QSystemTrayIcon.ActivationReason.Context and self._use_x11_tray:
-            self._popup_context_menu(self.tray_partner.geometry())
+            self._popup_context_menu(geom)
 
 
     def show_flyout(self, target_tab: str = "overview") -> None:
         """Brings the flyout to front and activates it."""
-        geom = self.geometry() if self.isVisible() else self.tray_antigravity.geometry()
+        geom = self._get_tray_geometry(self if self.isVisible() else self.tray_antigravity)
         if not self.flyout.isVisible():
             self.flyout.toggle_at_tray(geom, target_tab=target_tab)
         else:
@@ -1151,13 +1182,13 @@ class TrayController(QSystemTrayIcon):
             self.flyout.activateWindow()
 
     def _open_settings(self) -> None:
-        geom = self.geometry() if self.isVisible() else self.tray_antigravity.geometry()
+        geom = self._get_tray_geometry(self if self.isVisible() else self.tray_antigravity)
         if not self.flyout.isVisible():
             self.flyout.toggle_at_tray(geom)
         self.flyout.switch_page(1)
 
     def _open_help(self) -> None:
-        geom = self.geometry() if self.isVisible() else self.tray_antigravity.geometry()
+        geom = self._get_tray_geometry(self if self.isVisible() else self.tray_antigravity)
         if not self.flyout.isVisible():
             self.flyout.toggle_at_tray(geom)
         self.flyout.switch_page(2)

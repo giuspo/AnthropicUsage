@@ -14,12 +14,28 @@ class WindowPositioner:
     MARGIN = 12
 
     @classmethod
+    def _is_unanchored_linux_tray_rect(cls, tray_geometry: QRect, primary_full: QRect) -> bool:
+        """Returns True when XEmbed tray_geometry is invalid or still parent-relative at (0, 0)."""
+        if not tray_geometry.isValid() or tray_geometry.isNull() or tray_geometry.width() <= 0:
+            return True
+        if tray_geometry.x() <= 0 and tray_geometry.y() <= 0:
+            return True
+        if (
+            primary_full.left() == 0
+            and tray_geometry.x() <= 4
+            and tray_geometry.y() <= 36
+            and tray_geometry.width() <= 64
+        ):
+            return True
+        return False
+
+    @classmethod
     def _resolve_linux_tray_center_x(cls, tray_geometry: QRect, primary) -> int | None:
         """Converts X11/Clutter stage tray coordinates on Linux to primary screen Qt coordinates."""
-        if not tray_geometry.isValid() or tray_geometry.isNull() or tray_geometry.width() <= 0:
+        primary_full = primary.geometry()
+        if cls._is_unanchored_linux_tray_rect(tray_geometry, primary_full):
             return None
 
-        primary_full = primary.geometry()
         dpr = primary.devicePixelRatio() or 1.0
 
         # Case 1: tray_geometry is already in primary screen's Qt logical coordinates
@@ -61,7 +77,11 @@ class WindowPositioner:
             tray_center_x = cls._resolve_linux_tray_center_x(tray_geometry, primary)
             if tray_center_x is not None:
                 target_x = tray_center_x - (flyout_width // 2)
-            elif screen_full.contains(cursor_pos) and cursor_pos.y() <= screen_full.top() + 60:
+            elif (
+                screen_full.contains(cursor_pos)
+                and cursor_pos.y() <= screen_full.top() + 60
+                and cursor_pos.x() > screen_full.left() + 80
+            ):
                 target_x = cursor_pos.x() - (flyout_width // 2)
             else:
                 # Top-right indicator area on the primary screen
