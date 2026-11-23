@@ -49,7 +49,7 @@ def load_config() -> AppConfig:
             cfg.burn_rate_alert_enabled = data.get("burn_rate_alert_enabled", True)
             cfg.burn_rate_spike_pct = float(data.get("burn_rate_spike_pct", 15.0))
             cfg.burn_rate_window_minutes = int(data.get("burn_rate_window_minutes", 10))
-            cfg.heavy_turn_token_limit = int(data.get("heavy_turn_token_limit", 35000))
+            cfg.heavy_turn_token_limit = max(0, int(data.get("heavy_turn_token_limit", 100000)))
             cfg.poll_interval_active_sec = max(240, int(data.get("poll_interval_active_sec", 240)))
             cfg.poll_interval_idle_sec = max(900, int(data.get("poll_interval_idle_sec", 900)))
             cfg.autostart_enabled = data.get("autostart_enabled", False)

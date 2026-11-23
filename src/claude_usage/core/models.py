@@ -62,11 +62,29 @@ class TokenBreakdown:
     total_tokens: int = 0
 
     @property
+    def effective_tokens(self) -> int:
+        """Non-cache token volume (input + output + cache_write), falling back to total_tokens."""
+        breakdown_sum = self.input_tokens + self.output_tokens + self.cache_write_tokens
+        if breakdown_sum > 0 or self.cache_read_tokens > 0:
+            return breakdown_sum
+        return self.total_tokens
+
+    @property
     def cache_read_pct(self) -> float:
         total_in = self.input_tokens + self.cache_read_tokens
         if total_in <= 0:
             return 0.0
         return round((self.cache_read_tokens / total_in) * 100, 1)
+
+
+def format_token_count(count: int) -> str:
+    """Formats large token counts into compact, human-readable strings (e.g. 47.0k, 47.03M)."""
+    abs_val = abs(count)
+    if abs_val < 1_000:
+        return str(count)
+    if abs_val < 1_000_000:
+        return f"{count / 1_000:.1f}k"
+    return f"{count / 1_000_000:.2f}M"
 
 
 def format_friendly_reset(resets_at: Optional[datetime], utilization_pct: float) -> str:
@@ -285,7 +303,7 @@ class AppConfig:
     burn_rate_alert_enabled: bool = True
     burn_rate_spike_pct: float = 15.0
     burn_rate_window_minutes: int = 10
-    heavy_turn_token_limit: int = 35000
+    heavy_turn_token_limit: int = 100000
     poll_interval_active_sec: int = 240
     poll_interval_idle_sec: int = 900
     autostart_enabled: bool = False

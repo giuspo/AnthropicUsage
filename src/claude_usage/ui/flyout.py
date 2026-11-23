@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QRadioButton,
     QScrollArea,
+    QSpinBox,
     QStackedLayout,
     QVBoxLayout,
     QWidget,
@@ -946,6 +947,94 @@ class MicroFlyoutWindow(QWidget):
         self.chk_burn_rate.setCursor(Qt.CursorShape.PointingHandCursor)
         self.chk_burn_rate.setStyleSheet("color: #E4E4E7; font-size: 11px;")
         layout_notif.addWidget(self.chk_burn_rate)
+
+        self.burn_rate_box = QFrame(card_notif)
+        self.burn_rate_box.setObjectName("BurnRateBox")
+        self.burn_rate_box.setStyleSheet(
+            """
+            QFrame#BurnRateBox {
+                background-color: #121214;
+                border: 1px solid #27272A;
+                border-radius: 8px;
+            }
+            QSpinBox {
+                background-color: #18181B;
+                border: 1px solid #3F3F46;
+                border-radius: 5px;
+                color: #FFFFFF;
+                padding: 1px 6px;
+                font-size: 11px;
+                min-height: 22px;
+            }
+            QSpinBox:focus {
+                border-color: #3B82F6;
+            }
+            """
+        )
+        burn_layout = QVBoxLayout(self.burn_rate_box)
+        burn_layout.setContentsMargins(10, 8, 10, 8)
+        burn_layout.setSpacing(6)
+
+        row_quota_spike = QHBoxLayout()
+        row_quota_spike.setSpacing(6)
+        self.lbl_spike_quota = QLabel(t("settings.spike_quota_lbl"), self.burn_rate_box)
+        self.lbl_spike_quota.setStyleSheet("color: #A1A1AA; font-size: 11px;")
+        row_quota_spike.addWidget(self.lbl_spike_quota)
+
+        self.spin_spike_pct = QSpinBox(self.burn_rate_box)
+        self.spin_spike_pct.setRange(5, 100)
+        self.spin_spike_pct.setSingleStep(5)
+        self.spin_spike_pct.setSuffix("%")
+        self.spin_spike_pct.setFixedWidth(68)
+        self.spin_spike_pct.setValue(max(5, min(100, int(round(self.config.burn_rate_spike_pct)))))
+        row_quota_spike.addWidget(self.spin_spike_pct)
+
+        self.lbl_spike_in = QLabel(t("settings.spike_in_lbl"), self.burn_rate_box)
+        self.lbl_spike_in.setStyleSheet("color: #A1A1AA; font-size: 11px;")
+        row_quota_spike.addWidget(self.lbl_spike_in)
+
+        self.spin_spike_window = QSpinBox(self.burn_rate_box)
+        self.spin_spike_window.setRange(1, 60)
+        self.spin_spike_window.setSingleStep(1)
+        self.spin_spike_window.setSuffix(" min")
+        self.spin_spike_window.setFixedWidth(78)
+        self.spin_spike_window.setValue(max(1, min(60, int(self.config.burn_rate_window_minutes))))
+        row_quota_spike.addWidget(self.spin_spike_window)
+        row_quota_spike.addStretch()
+        burn_layout.addLayout(row_quota_spike)
+
+        row_tok_spike = QHBoxLayout()
+        row_tok_spike.setSpacing(6)
+        self.lbl_spike_tokens = QLabel(t("settings.spike_tokens_lbl"), self.burn_rate_box)
+        self.lbl_spike_tokens.setStyleSheet("color: #A1A1AA; font-size: 11px;")
+        row_tok_spike.addWidget(self.lbl_spike_tokens)
+
+        self.spin_token_limit = QSpinBox(self.burn_rate_box)
+        self.spin_token_limit.setRange(0, 2000)
+        self.spin_token_limit.setSingleStep(25)
+        self.spin_token_limit.setSuffix("k")
+        self.spin_token_limit.setSpecialValueText(t("settings.spike_tokens_off"))
+        self.spin_token_limit.setFixedWidth(84)
+        self.spin_token_limit.setValue(
+            max(0, min(2000, int(getattr(self.config, "heavy_turn_token_limit", 100000) // 1000)))
+        )
+        row_tok_spike.addWidget(self.spin_token_limit)
+        row_tok_spike.addStretch()
+        burn_layout.addLayout(row_tok_spike)
+
+        self.lbl_spike_hint = QLabel(self.burn_rate_box)
+        self.lbl_spike_hint.setWordWrap(True)
+        self.lbl_spike_hint.setStyleSheet("color: #71717A; font-size: 10px;")
+        burn_layout.addWidget(self.lbl_spike_hint)
+
+        self.spin_spike_pct.valueChanged.connect(self._update_spike_hint)
+        self.spin_spike_window.valueChanged.connect(self._update_spike_hint)
+        self.spin_token_limit.valueChanged.connect(self._update_spike_hint)
+        self._update_spike_hint()
+
+        self.burn_rate_box.setVisible(self.config.burn_rate_alert_enabled)
+        self.chk_burn_rate.toggled.connect(self.burn_rate_box.setVisible)
+        layout_notif.addWidget(self.burn_rate_box)
         scroll_layout.addWidget(card_notif)
 
         # --- CARD 4: STILE ICONA & SISTEMA ---
@@ -1219,6 +1308,16 @@ class MicroFlyoutWindow(QWidget):
             self.lbl_tin.setText(t("settings.thresholds_lbl"))
         if hasattr(self, "chk_burn_rate"):
             self.chk_burn_rate.setText(t("settings.burn_rate_chk"))
+        if hasattr(self, "lbl_spike_quota"):
+            self.lbl_spike_quota.setText(t("settings.spike_quota_lbl"))
+        if hasattr(self, "lbl_spike_in"):
+            self.lbl_spike_in.setText(t("settings.spike_in_lbl"))
+        if hasattr(self, "lbl_spike_tokens"):
+            self.lbl_spike_tokens.setText(t("settings.spike_tokens_lbl"))
+        if hasattr(self, "spin_token_limit"):
+            self.spin_token_limit.setSpecialValueText(t("settings.spike_tokens_off"))
+        if hasattr(self, "lbl_spike_hint"):
+            self._update_spike_hint()
         if hasattr(self, "lbl_st_title"):
             self.lbl_st_title.setText(t("settings.style_title"))
         if hasattr(self, "btn_style_concentric"):
@@ -1677,6 +1776,18 @@ class MicroFlyoutWindow(QWidget):
         self.btn_style_split.setStyleSheet(active_css if cur == "split" else inactive_css)
         self.btn_style_bars.setStyleSheet(active_css if cur == "bars" else inactive_css)
 
+    def _update_spike_hint(self) -> None:
+        if not hasattr(self, "lbl_spike_hint"):
+            return
+        pct = self.spin_spike_pct.value()
+        mins = self.spin_spike_window.value()
+        tok_k = self.spin_token_limit.value()
+        if tok_k <= 0:
+            self.lbl_spike_hint.setText(t("settings.spike_hint_no_tok", pct=pct, mins=mins))
+        else:
+            tok_str = f"{tok_k / 1000:.2f}M" if tok_k >= 1000 else f"{tok_k}k"
+            self.lbl_spike_hint.setText(t("settings.spike_hint", pct=pct, mins=mins, tok=tok_str))
+
     def _save_settings_action(self) -> None:
         # Enforce at least one provider active
         enable_cl = self.chk_enable_claude.isChecked()
@@ -1692,6 +1803,9 @@ class MicroFlyoutWindow(QWidget):
 
         self.config.notifications_enabled = self.chk_notif.isChecked()
         self.config.burn_rate_alert_enabled = self.chk_burn_rate.isChecked()
+        self.config.burn_rate_spike_pct = float(self.spin_spike_pct.value())
+        self.config.burn_rate_window_minutes = int(self.spin_spike_window.value())
+        self.config.heavy_turn_token_limit = int(self.spin_token_limit.value()) * 1000
         self.config.mock_mode = self.chk_mock.isChecked()
         self.config.tray_icon_style = getattr(self, "_current_tray_style", "concentric")
         self.config.language = getattr(self, "_selected_language", "auto")

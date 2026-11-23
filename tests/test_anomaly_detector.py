@@ -5,7 +5,7 @@ import pytest
 from unittest.mock import AsyncMock, patch
 
 from claude_usage.core.engine import UsageFusionEngine
-from claude_usage.core.models import AppConfig, TokenBreakdown, UsageSnapshot, UsageWindow
+from claude_usage.core.models import AppConfig, TokenBreakdown, UsageSnapshot, UsageWindow, format_token_count
 from claude_usage.core.notifier import AlertEngine
 
 
@@ -62,6 +62,51 @@ def test_burn_rate_token_volume_surge():
     engine._evaluate_burn_rate()
     assert engine._current_snapshot.is_burn_rate_abnormal is True
     assert "Picco token anomalo" in engine._current_snapshot.anomaly_reason
+    assert "+40.0k token" in engine._current_snapshot.anomaly_reason
+
+
+def test_format_token_count():
+    assert format_token_count(850) == "850"
+    assert format_token_count(47_034) == "47.0k"
+    assert format_token_count(47_034_877) == "47.03M"
+
+
+def test_cache_read_surge_does_not_trigger_false_anomaly():
+    config = AppConfig(heavy_turn_token_limit=100_000, burn_rate_spike_pct=15.0)
+    engine = UsageFusionEngine(config)
+
+    now = time.time()
+    engine._history = [(now - 130, 9.0, 12_000)]
+    # 47M cache_read_tokens with only 25k real effective tokens (12k -> 25k = +13k)
+    engine._current_snapshot = UsageSnapshot(
+        five_hour=UsageWindow(utilization_pct=11.0),
+        tokens=TokenBreakdown(
+            input_tokens=15_000,
+            output_tokens=5_000,
+            cache_write_tokens=5_000,
+            cache_read_tokens=47_000_000,
+            total_tokens=47_025_000,
+        ),
+    )
+
+    engine._evaluate_burn_rate()
+    assert engine._current_snapshot.is_burn_rate_abnormal is False
+    assert engine._current_snapshot.anomaly_reason is None
+
+
+def test_zero_token_limit_disables_token_spike_alert():
+    config = AppConfig(heavy_turn_token_limit=0, burn_rate_spike_pct=15.0)
+    engine = UsageFusionEngine(config)
+
+    now = time.time()
+    engine._history = [(now - 120, 10.0, 5_000)]
+    engine._current_snapshot = UsageSnapshot(
+        five_hour=UsageWindow(utilization_pct=12.0),
+        tokens=TokenBreakdown(input_tokens=500_000, total_tokens=500_000),
+    )
+
+    engine._evaluate_burn_rate()
+    assert engine._current_snapshot.is_burn_rate_abnormal is False
 
 
 def _step_coro(coro):

@@ -21,6 +21,7 @@ from claude_usage.core.models import (
     AntigravityUsageSnapshot,
     CompositeUsageSnapshot,
     UsageSnapshot,
+    format_token_count,
 )
 from claude_usage.core.notifier import AlertEngine
 
@@ -226,7 +227,7 @@ class UsageFusionEngine(QObject):
 
         now = time.time()
         curr_util = self._current_snapshot.primary_utilization
-        curr_tokens = self._current_snapshot.tokens.total_tokens
+        curr_tokens = self._current_snapshot.tokens.effective_tokens
 
         if not self._current_snapshot.is_offline and not self._current_snapshot.is_rate_limited:
             self._history.append((now, curr_util, curr_tokens))
@@ -256,10 +257,14 @@ class UsageFusionEngine(QObject):
                 return
 
             delta_tokens = curr_tokens - oldest_tokens
-            if delta_tokens >= self.config.heavy_turn_token_limit and delta_t_min <= 5.0:
+            if (
+                self.config.heavy_turn_token_limit > 0
+                and delta_tokens >= self.config.heavy_turn_token_limit
+                and delta_t_min <= 5.0
+            ):
                 self._current_snapshot.is_burn_rate_abnormal = True
                 self._current_snapshot.anomaly_reason = (
-                    f"Picco token anomalo: +{delta_tokens:,} token in {delta_t_min:.1f} min"
+                    f"Picco token anomalo: +{format_token_count(delta_tokens)} token in {delta_t_min:.1f} min (esclusa cache)"
                 )
                 return
 
